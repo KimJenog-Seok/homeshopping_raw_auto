@@ -1,0 +1,37 @@
+name: Step 3 Format & Sort (KST)
+
+on:
+  schedule:
+    # 매일 04:20 KST = 매일 19:20 UTC
+    - cron: "20 19 * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install gspread google-auth google-auth-oauthlib
+
+      - name: Run step3_format.py
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_on: error
+          command: python step3_format.py
+        env:
+          KEY1: ${{ secrets.KEY1 }}
