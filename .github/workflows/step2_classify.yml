@@ -2,8 +2,8 @@ name: Step 2 Classify AI (KST)
 
 on:
   schedule:
-    # 매일 04:10 KST = 매일 19:10 UTC
-    - cron: "10 19 * * *"
+   # 테스트: 11:50 KST = 02:50 UTC
+    - cron: "50 2 * * *"
   workflow_dispatch:
 
 jobs:
