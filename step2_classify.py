@@ -11,37 +11,37 @@ from openai import OpenAI
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Aqwj1SkHsgAr08doidy_tfnHJNwgdFfNrMoMteoXMdE/edit"
 WORKSHEET_NAME = "편성표RAW"
 
-# 정석님이 작성하신 완벽한 프롬프트
+# 💡 최적화된 프롬프트: 불필요한 샘플 매칭을 없애고 충돌 규칙을 최우선으로 적용
 SYSTEM_PROMPT = """
-### 🎯 역할 및 목표 (ROLE & GOAL)
-- 역할: 나는 `홈쇼핑 카테고리 구분 챗봇`이다.
-  외부 홈쇼핑 편성 데이터를 내부 기준 **‘카테고리 기본 구분(14종)’** 으로 자동 분류한다.
-- 최종 목표: 입력 데이터에 `CAT구분` 값을 채워넣는다.
-  모든 레코드는 반드시 14개 기준 중 하나의 카테고리명으로 결정되어야 한다.
-  카테고리: 금융, 렌탈서비스, 여행, 여성의류, 공용의류, 레포츠의류, 패션잡화, 언더웨어, 쥬얼리, 리빙, 가전, 일반식품, 건강식품, 뷰티 
-  결과는 카테고리명만 반환한다.
+### 🎯 역할 및 목표
+- 당신은 홈쇼핑 상품 데이터를 14개 기본 카테고리로 정확히 분류하는 AI입니다.
+- 카테고리: 금융, 렌탈서비스, 여행, 여성의류, 공용의류, 레포츠의류, 패션잡화, 언더웨어, 쥬얼리, 리빙, 가전, 일반식품, 건강식품, 뷰티
+- 결과는 오직 14개 중 하나의 카테고리명만 반환해야 합니다. 빈칸, 기타, 미정은 절대 금지됩니다.
 
-### 💡 핵심 제약 (CRUCIAL CONSTRAINTS)
-- `CAT구분`은 14개 표준 라벨 중 하나여야 한다.
-- 빈값, 기타, 미정은 절대 금지.
-- 다음 단어가 포함 된 경우 강제로 카테고리 부여:
-  코지마 = 리빙
-  헤스티지 = 공용의류
-  비버리힐즈폴로클럽 = 레포츠의류
-  보람피플 = 렌탈서비스
+### 💡 핵심 제약 및 분류 절차
+1. 제공된 [지식 정보]의 '충돌키워드_우선분류표'와 '정제_NEW_키워드'를 가장 최우선으로 검토합니다.
+2. 만약 해당 상품이 공용의류/레포츠의류 등 충돌 키워드를 포함하고 있다면, 반드시 우선분류표의 기준을 따릅니다.
+3. 다음 특정 브랜드가 포함된 경우 강제로 카테고리를 부여합니다:
+   - 코지마 = 리빙
+   - 헤스티지 = 공용의류
+   - 비버리힐즈폴로클럽 = 레포츠의류
+   - 보람피플 = 렌탈서비스
+4. 지식 정보에 명시된 규칙이 없다면, 상품의 기능과 용도를 파악하여 14개 중 가장 적합한 카테고리를 하나 선택합니다.
 
-### 💬 출력 형식 (OUTPUT FORMAT)
-[카테고리명만 반환, 예: 여성의류]
-- 문장, 근거, 이유, 설명, 따옴표, 접두사, 마크다운 등 어떤 것도 포함하지 않는다.
+### 💬 출력 형식
+- [카테고리명만 반환, 예: 여성의류]
+- 문장, 이유, 설명 등 부가적인 텍스트는 절대 출력하지 마세요.
 """
 
-def get_reference_data():
-    files = [
-        "정제_샘플.txt", "정제_NEW_키워드.txt",
-        "충돌키워드_우선분류표.txt", "충돌_키워드리스트.txt", "정규화_매핑표.txt"
+def get_optimized_reference_data():
+    # 💡 16만 토큰을 유발했던 무거운 파일들을 제외하고, 핵심 규칙 파일 3개만 로드합니다.
+    core_files = [
+        "정제_NEW_키워드.txt",
+        "충돌키워드_우선분류표.txt", 
+        "충돌_키워드리스트.txt"
     ]
     ref_text = "\n\n### 📚 지식 정보 (KNOWLEDGE & REFERENCE DATA) ###\n"
-    for fn in files:
+    for fn in core_files:
         if os.path.exists(fn):
             with open(fn, "r", encoding="utf-8") as f:
                 ref_text += f"\n--- [{fn}] ---\n" + f.read()
@@ -62,9 +62,8 @@ def classify_one_row(client, title, base, full_prompt):
         result = re.split(r"[—\-–]", result)[-1].strip()
         return result.splitlines()[0].strip()
     except Exception as e:
-      # 에러의 진짜 원인을 로그에 출력하도록 Print 문을 추가합니다.
-      print(f"❌ [에러 상세 내용]: {type(e).__name__} - {e}")
-      return f"분류오류"
+        print(f"❌ [에러 상세 내용]: {type(e).__name__} - {e}")
+        return f"분류오류"
 
 def gs_client_from_env():
     GSVC_JSON_B64 = os.environ.get("KEY1", "")
@@ -79,7 +78,9 @@ def main():
         raise RuntimeError("❌ OPENAI_API_KEY가 없습니다.")
 
     client = OpenAI(api_key=OPENAI_API_KEY)
-    full_prompt = SYSTEM_PROMPT + get_reference_data()
+    
+    # 압축된 핵심 데이터만 프롬프트에 결합
+    full_prompt = SYSTEM_PROMPT + get_optimized_reference_data()
 
     gc = gs_client_from_env()
     sh = gc.open_by_url(SPREADSHEET_URL)
@@ -91,10 +92,9 @@ def main():
         return
 
     header = rows[0]
-    data = rows[1:21]
     
-    # AI분류가 이미 채워져 있는지 확인 후, 비어있는 경우만 분류
-    ai_col_index = header.index("AI분류") if "AI분류" in header else 18
+    # 💡 20행까지만 테스트로 제한
+    data = rows[1:21] 
     
     print(f"총 {len(data)}행 분류 시작...")
     results = [""] * len(data)
@@ -115,7 +115,7 @@ def main():
     update_values = [[r] for r in results] 
     
     ws.update(range_name=update_range, values=update_values)
-    print("🎯 2단계: AI 카테고리 병렬 분류 완료!")
+    print("🎯 2단계: AI 카테고리 병렬 분류 완료 (20행 테스트)!")
 
 if __name__ == "__main__":
     main()
