@@ -62,7 +62,9 @@ def classify_one_row(client, title, base, full_prompt):
         result = re.split(r"[—\-–]", result)[-1].strip()
         return result.splitlines()[0].strip()
     except Exception as e:
-        return f"분류오류"
+      # 에러의 진짜 원인을 로그에 출력하도록 Print 문을 추가합니다.
+      print(f"❌ [에러 상세 내용]: {type(e).__name__} - {e}")
+      return f"분류오류"
 
 def gs_client_from_env():
     GSVC_JSON_B64 = os.environ.get("KEY1", "")
