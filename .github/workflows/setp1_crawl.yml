@@ -2,8 +2,8 @@ name: Step 1 Crawl Daily (KST)
 
 on:
   schedule:
-    # 매일 04:00 KST = 매일 19:00 UTC
-    - cron: "0 19 * * *"
+   # 테스트: 11:30 KST = 02:30 UTC
+    - cron: "30 2 * * *"
   workflow_dispatch:
 
 jobs:
