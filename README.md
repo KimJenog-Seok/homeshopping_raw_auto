@@ -1,0 +1,1 @@
+# homeshopping_raw_auto
