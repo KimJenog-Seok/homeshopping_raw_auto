@@ -155,6 +155,21 @@ def main():
         sh.reorder_worksheets(new_order)
         print(f"📌 {backup_title} 시트를 맨 앞으로 이동 완료")
 
+        # 5. 숫자 포맷 적용 (정석님 요청 반영)
+        def number_format(col_idx, pattern):
+        return {
+            "repeatCell": {
+                "range": {"sheetId": ws.id, "startRowIndex": 1, "endRowIndex": row_count, "startColumnIndex": col_idx, "endColumnIndex": col_idx+1},
+                "cell": {"userEnteredFormat": {"numberFormat": {"type": "NUMBER", "pattern": pattern}}},
+                "fields": "userEnteredFormat.numberFormat"
+            }
+        }
+    
+        reqs.append(number_format(9, "#,##0"))      # J열: 매출액 (인덱스 9)
+        reqs.append(number_format(12, "0.0"))       # M열: 환산가치 (인덱스 12, 소수점 1자리)
+        reqs.append(number_format(16, "#,##0.00"))  # Q열 (기존 유지)
+        reqs.append(number_format(17, "#,##0"))     # R열 (기존 유지)
+
         print("🎉 3단계: 포맷팅 및 시트 생성 완벽 종료!")
 
     except Exception as e:
