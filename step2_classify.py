@@ -94,8 +94,8 @@ def main():
 
     header = rows[0]
     
-    # 💡 20행까지만 테스트로 제한
-    data = rows[1:21] 
+    # 💡 100행까지만 테스트로 제한
+    data = rows[1:101] 
     
     print(f"총 {len(data)}행 분류 시작...")
     results = [""] * len(data)
