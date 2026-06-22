@@ -15,10 +15,20 @@ def gs_client_from_env():
     creds = Credentials.from_service_account_info(svc_info, scopes=["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"])
     return gspread.authorize(creds)
 
+# 💡 중복 시트 방지 안전장치 복구
+def unique_sheet_title(sh, base):
+    title = base
+    n = 1
+    while True:
+        try:
+            sh.worksheet(title)
+            title = f"{base}-{n}"
+            n += 1
+        except gspread.exceptions.WorksheetNotFound:
+            return title
+
 def apply_formatting(sh, ws, row_count, col_count=19):
-    # 포맷팅 요청들
     reqs = []
-    # 숫자 포맷 정의
     def get_fmt(col_idx, pattern):
         return {
             "repeatCell": {
@@ -28,8 +38,8 @@ def apply_formatting(sh, ws, row_count, col_count=19):
             }
         }
     
-    reqs.append(get_fmt(9, "#,##0"))      # J열 매출액 (인덱스 9)
-    reqs.append(get_fmt(12, "0.0"))       # M열 환산가치 (인덱스 12)
+    reqs.append(get_fmt(9, "#,##0"))      # J열 매출액 콤마 적용
+    reqs.append(get_fmt(12, "0.0"))       # M열 환산가치 소수점 1자리 적용
     
     sh.batch_update({"requests": reqs})
 
@@ -41,21 +51,25 @@ def main():
     all_data = ws_raw.get_all_values()
     header = all_data[0]
     rows = all_data[1:]
+    # 회사명, 방송시작시간 기준 정렬
     rows.sort(key=lambda x: (x[7] if len(x) > 7 else "", x[1] if len(x) > 1 else ""))
     
     KST = timezone(timedelta(hours=9))
     base_title = (datetime.now(KST).date() - timedelta(days=1)).strftime("%y/%m/%d")
     
-    ws_bu = sh.add_worksheet(title=base_title, rows=len(rows)+1, cols=len(header))
+    safe_title = unique_sheet_title(sh, base_title)
+    
+    ws_bu = sh.add_worksheet(title=safe_title, rows=len(rows)+1, cols=len(header))
     ws_bu.update(range_name="A1", values=[header] + rows)
     
-    # 시트 이동
+    # 💡 최신 데이터 시트를 맨 앞으로(가장 좌측으로) 이동
     all_ws = sh.worksheets()
-    sh.reorder_worksheets([ws_bu] + [w for w in all_ws if w.id != ws_bu.id])
+    new_order = [ws_bu] + [w for w in all_ws if w.id != ws_bu.id]
+    sh.reorder_worksheets(new_order)
     
-    # 서식 적용
+    # 숫자 서식 적용
     apply_formatting(sh, ws_bu, len(rows)+1)
-    print("성공")
+    print("🎉 포맷팅 및 시트 생성 성공")
 
 if __name__ == "__main__":
     main()
