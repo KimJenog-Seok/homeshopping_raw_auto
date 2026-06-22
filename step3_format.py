@@ -17,7 +17,7 @@ def gs_client_from_env():
     creds = Credentials.from_service_account_info(svc_info, scopes=scope)
     return gspread.authorize(creds)
 
-# 💡 중복 시트 방지 안전장치
+# 중복 시트 방지 안전장치
 def unique_sheet_title(sh, base):
     title = base
     n = 1
@@ -29,11 +29,11 @@ def unique_sheet_title(sh, base):
         except gspread.exceptions.WorksheetNotFound:
             return title
 
-# 🎨 날아갔던 서식 완벽 복구 + 정석님 요청 숫자 포맷 추가
+# 서식 일괄 적용 함수 (테두리, 헤더, 정렬, 숫자포맷 모두 포함)
 def apply_formatting(sh, ws, row_count, col_count=19):
     reqs = []
     
-    # 1. 전체 테두리
+    # 1. 전체 테두리 선 긋기
     reqs.append({
         "updateBorders": {
             "range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": row_count, "startColumnIndex": 0, "endColumnIndex": col_count},
@@ -43,7 +43,7 @@ def apply_formatting(sh, ws, row_count, col_count=19):
         }
     })
 
-    # 2. 열 너비 설정
+    # 2. 열 너비 조절
     reqs.append({
         "updateDimensionProperties": {
             "range": {"sheetId": ws.id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": col_count},
@@ -70,7 +70,7 @@ def apply_formatting(sh, ws, row_count, col_count=19):
             }
         })
 
-    # 3. 정렬 (기본 가운데, C열만 왼쪽)
+    # 3. 텍스트 정렬 (기본 가운데, C열 방송정보만 왼쪽)
     reqs.append({
         "repeatCell": {
             "range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": row_count, "startColumnIndex": 0, "endColumnIndex": col_count},
@@ -86,7 +86,7 @@ def apply_formatting(sh, ws, row_count, col_count=19):
         }
     })
 
-    # 4. 헤더 스타일 (회색 배경, 굵게)
+    # 4. 헤더 스타일 지정 (회색 배경, 글자 굵게)
     reqs.append({
         "repeatCell": {
             "range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": col_count},
@@ -95,7 +95,7 @@ def apply_formatting(sh, ws, row_count, col_count=19):
         }
     })
 
-    # 5. 숫자 포맷 적용 (정석님 특별 요청사항 포함)
+    # 5. 인간 중심 숫자 포맷 적용 (정석님 요청 반영)
     def number_format(col_idx, pattern):
         return {
             "repeatCell": {
@@ -105,10 +105,10 @@ def apply_formatting(sh, ws, row_count, col_count=19):
             }
         }
     
-    reqs.append(number_format(9, "#,##0"))      # J열 (매출액) 콤마 적용
-    reqs.append(number_format(12, "0.0"))       # M열 (환산가치) 소수점 1자리
-    reqs.append(number_format(16, "#,##0.00"))  # Q열 (기존 유지)
-    reqs.append(number_format(17, "#,##0"))     # R열 (기존 유지)
+    reqs.append(number_format(9, "#,##0"))      # J열 (매출액 환산수식): 천단위 콤마, 소수점 없음
+    reqs.append(number_format(17, "#,##0"))     # R열 (주문효율 /h): 천단위 콤마, 소수점 없음
+    reqs.append(number_format(12, "0.0"))       # M열 (환산가치): 소수점 한자리 고정
+    reqs.append(number_format(16, "0.0"))       # Q열 (분리송출고려환산가치): 소수점 한자리 고정
 
     sh.batch_update({"requests": reqs})
 
@@ -138,7 +138,9 @@ def main():
         cols_cnt = len(header)
         
         ws_bu = sh.add_worksheet(title=safe_title, rows=rows_cnt, cols=cols_cnt)
-        ws_bu.update(range_name="A1", values=final_data)
+        
+        # 💡 핵심 솔루션: USER_ENTERED 옵션을 사용하여 문자열 데이터를 진짜 숫자로 판정하여 입력합니다.
+        ws_bu.update(range_name="A1", values=final_data, value_input_option="USER_ENTERED")
         
         # 최신 데이터 시트를 맨 앞으로 이동
         all_ws = sh.worksheets()
