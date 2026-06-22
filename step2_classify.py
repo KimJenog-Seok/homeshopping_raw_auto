@@ -36,6 +36,7 @@ SYSTEM_PROMPT = """
 def get_optimized_reference_data():
     # 💡 16만 토큰을 유발했던 무거운 파일들을 제외하고, 핵심 규칙 파일 3개만 로드합니다.
     core_files = [
+        "정제_샘플.txt",
         "정제_NEW_키워드.txt",
         "충돌키워드_우선분류표.txt", 
         "충돌_키워드리스트.txt"
