@@ -36,10 +36,10 @@ SYSTEM_PROMPT = """
 def get_optimized_reference_data():
     # 💡 학습파일 정체 10만토큰 언더로 유지할것.
     core_files = [
-        "정제_샘플_축약_10만토큰이하.tsv",
-        "정제_NEW_키워드.txt",
-        "충돌키워드_우선분류표.txt", 
-        "충돌_키워드리스트.txt"
+        "정제_샘플_축약_10만토큰이하.csv",
+        "정제_NEW_키워드.csv",
+        "충돌키워드_우선분류표.csv", 
+        "충돌_키워드리스트.csv"
     ]
     ref_text = "\n\n### 📚 지식 정보 (KNOWLEDGE & REFERENCE DATA) ###\n"
     for fn in core_files:
