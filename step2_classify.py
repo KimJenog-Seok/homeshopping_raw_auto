@@ -44,7 +44,7 @@ def get_optimized_reference_data():
     ref_text = "\n\n### 📚 지식 정보 (KNOWLEDGE & REFERENCE DATA) ###\n"
     for fn in core_files:
         if os.path.exists(fn):
-            with open(fn, "r", encoding="utf-8") as f:
+            with open(fn, "r", encoding="utf-8-sig") as f:
                 ref_text += f"\n--- [{fn}] ---\n" + f.read()
     return ref_text
 
