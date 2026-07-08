@@ -94,8 +94,8 @@ def main():
 
     header = rows[0]
     
-    # 💡 임시 21 진행
-    data = rows[1:21] 
+    # 💡 전체 행 진행
+    data = rows[1:] 
     
     print(f"총 {len(data)}행 분류 시작...")
     results = [""] * len(data)
