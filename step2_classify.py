@@ -36,7 +36,7 @@ SYSTEM_PROMPT = """
 def get_optimized_reference_data():
     # 💡 학습파일 정체 10만토큰 언더로 유지할것.
     core_files = [
-        "정제_샘플_축약_10만토큰이하.csv",
+        "정제_샘플_축약_10만토큰이하_26년 7월 13일.csv",
         "정제_NEW_키워드.csv",
         "충돌키워드_우선분류표.csv", 
         "충돌_키워드리스트.csv"
