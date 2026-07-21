@@ -57,7 +57,7 @@ def classify_one_row(client, title, base, full_prompt):
                 {"role": "system", "content": full_prompt},
                 {"role": "user", "content": f"방송정보: {title}\n분류: {base}"}
             ],
-            temperature=0.0
+            temperature=0.4
         )
         result = response.choices[0].message.content.strip()
         result = re.sub(r"[`´'\"]+", "", result).strip()
