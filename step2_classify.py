@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, json, base64, re
+import os, json, base64, re, time
 from concurrent.futures import ThreadPoolExecutor
 import gspread
 from google.oauth2.service_account import Credentials
@@ -49,23 +49,33 @@ def get_optimized_reference_data():
                 ref_text += f"\n--- [{fn}] ---\n" + f.read()
     return ref_text
 
-def classify_one_row(client, title, base, full_prompt):
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": full_prompt},
-                {"role": "user", "content": f"방송정보: {title}\n분류: {base}"}
-            ],
-            temperature=0.4
-        )
-        result = response.choices[0].message.content.strip()
-        result = re.sub(r"[`´'\"]+", "", result).strip()
-        result = re.split(r"[—\-–]", result)[-1].strip()
-        return result.splitlines()[0].strip()
-    except Exception as e:
-        print(f"❌ [에러 상세 내용]: {type(e).__name__} - {e}")
-        return f"분류오류"
+def classify_one_row(client, title, base, full_prompt, max_retries=3):
+    # 💡 RateLimitError 방어를 위한 재시도(Retry) 로직 도입
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": full_prompt},
+                    {"role": "user", "content": f"방송정보: {title}\n분류: {base}"}
+                ],
+                temperature=0.4
+            )
+            result = response.choices[0].message.content.strip()
+            result = re.sub(r"[`´'\"]+", "", result).strip()
+            result = re.split(r"[—\-–]", result)[-1].strip()
+            return result.splitlines()[0].strip()
+            
+        except Exception as e:
+            error_name = type(e).__name__
+            print(f"⚠️ [경고/재시도 {attempt+1}/{max_retries}]: {error_name} - {e}")
+            
+            # 마지막 시도가 아니라면 5초 대기 후 재시도
+            if attempt < max_retries - 1:
+                time.sleep(5)
+            else:
+                print(f"❌ [최종 에러 상세 내용]: {error_name} - {e}")
+                return f"분류오류"
 
 def gs_client_from_env():
     GSVC_JSON_B64 = os.environ.get("KEY1", "")
@@ -102,7 +112,8 @@ def main():
     results = [""] * len(data)
     tasks = []
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    # 💡 RateLimit 초과를 막기 위해 워커 수를 5에서 2로 조정
+    with ThreadPoolExecutor(max_workers=2) as executor:
         for idx, row in enumerate(data):
             title = row[2] if len(row) > 2 else ""
             base = row[3] if len(row) > 3 else ""
@@ -117,7 +128,7 @@ def main():
     update_values = [[r] for r in results] 
     
     ws.update(range_name=update_range, values=update_values)
-    print("🎯 2단계: AI 카테고리 병렬 분류 완료 (20행 테스트)!")
+    print("🎯 2단계: AI 카테고리 병렬 분류 완료 (전체 행 처리 완료)!")
 
 if __name__ == "__main__":
     main()
