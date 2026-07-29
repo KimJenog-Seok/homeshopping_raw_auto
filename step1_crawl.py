@@ -270,7 +270,7 @@ def main():
         payload = [df_u.columns.tolist()] + df_u.values.tolist()
 
         ws_raw.clear()
-        ws_raw.update(range_name="A1", values=payload)
+        ws_raw.update(range_name="A1", values=payload,value_input_option="RAW")
         print(f"🎉 1단계 크롤링 완료! 편성표RAW 업데이트 완료 ({len(payload)}행)")
 
     except Exception as e:
