@@ -21,7 +21,7 @@ ARTIFACT_DIR.mkdir(exist_ok=True)
 
 # 정석님 요청대로 하드코딩 유지
 ECOMM_ID = "smt@trncompany.co.kr"
-ECOMM_PW = "sales4580!!"
+ECOMM_PW = "sales7777!!"
 SCHEDULE_URL = "https://live.ecomm-data.com/schedule/hs"
 
 # 새로 만들어주신 테스트용 시트 URL 반영
