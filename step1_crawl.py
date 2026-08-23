@@ -19,19 +19,21 @@ WAIT = 5
 ARTIFACT_DIR = Path("artifacts")
 ARTIFACT_DIR.mkdir(exist_ok=True)
 
-# 정석님 요청대로 하드코딩 유지
 ECOMM_ID = "smt@trncompany.co.kr"
 ECOMM_PW = "sales7777!!"
 SCHEDULE_URL = "https://live.ecomm-data.com/schedule/hs"
 
-# 새로 만들어주신 테스트용 시트 URL 반영
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Aqwj1SkHsgAr08doidy_tfnHJNwgdFfNrMoMteoXMdE/edit"
 WORKSHEET_NAME = "편성표RAW"
 
 # ===================== 유틸 및 크롤링 =====================
 def make_driver():
-    opts = webdriver.ChromeOptions()
+    #opts = webdriver.ChromeOptions()
+    
+    # 💡 내 PC에서 눈으로 동작을 확인하고 싶다면 아래 줄의 맨 앞에 #을 붙여 주석처리하세요.
+    # 깃허브 서버에 올릴 때는 반드시 주석을 풀어서 Headless 모드로 작동하게 해야 합니다.
     opts.add_argument("--headless=new")
+    
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-gpu")
@@ -69,7 +71,6 @@ def login_and_handle_session(driver):
     driver.execute_script("arguments[0].click();", login_button)
     print("✅ 로그인 시도!")
 
-    # 세션 초과 팝업 처리
     time.sleep(2)
     try:
         session_items = [li for li in driver.find_elements(By.CSS_SELECTOR, "ul > li") if li.is_displayed()]
@@ -85,6 +86,7 @@ def login_and_handle_session(driver):
     print("✅ 로그인 성공 판정!")
 
 def crawl_schedule(driver):
+    # 기존과 완벽히 동일 (생략 없이 원본 유지)
     driver.get(SCHEDULE_URL)
     print("✅ 편성표 홈쇼핑 페이지 이동 완료")
     time.sleep(2)
@@ -131,7 +133,28 @@ def crawl_schedule(driver):
     print(f"총 {len(df)}개 편성표 정보 추출 완료")
     return df
 
-# ===================== Google Sheets 및 전처리 =====================
+# ===================== 로그아웃 절차 추가 =====================
+def execute_logout(driver):
+    print("🚪 로그아웃 절차 시작")
+    try:
+        # 1. 우측 상단 '쇼핑엔티' 클릭하여 드롭다운 메뉴 열기
+        user_menu = WebDriverWait(driver, WAIT).until(
+            EC.element_to_be_clickable((By.XPATH, "//b[contains(text(), '쇼핑엔티')]"))
+        )
+        driver.execute_script("arguments[0].click();", user_menu)
+        time.sleep(1) # 드롭다운 애니메이션 대기
+
+        # 2. '로그아웃' 텍스트를 가진 링크 클릭
+        logout_btn = WebDriverWait(driver, WAIT).until(
+            EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), '로그아웃')]"))
+        )
+        driver.execute_script("arguments[0].click();", logout_btn)
+        time.sleep(2) # 로그아웃 완료 대기
+        print("✅ 정상적으로 로그아웃 되었습니다.")
+    except Exception as e:
+        print(f"⚠️ 로그아웃 과정에서 문제가 발생했습니다: {e}")
+
+# ===================== Google Sheets 및 전처리 (생략 없이 원본 유지) =====================
 def gs_client_from_env():
     GSVC_JSON_B64 = os.environ.get("KEY1", "")
     svc_info = json.loads(base64.b64decode(GSVC_JSON_B64).decode("utf-8"))
@@ -155,7 +178,7 @@ def split_company_from_broadcast(text):
         if re.search(pattern, t):
             cleaned = re.sub(pattern, "", t).rstrip()
             return cleaned, key, PLATFORM_MAP[key]
-    return text, "", ""    
+    return text, "", ""   
 
 def _to_int_kor(s):
     if not s or str(s).strip() in ["", "-"]: return 0
@@ -278,7 +301,10 @@ def main():
         print("❌ 오류 발생:", e)
         print(traceback.format_exc())
     finally:
-        if driver: driver.quit()
+        if driver: 
+            # 💡 브라우저를 닫기 전에 무조건 로그아웃 실행!
+            execute_logout(driver)
+            driver.quit()
 
 if __name__ == "__main__":
     main()
