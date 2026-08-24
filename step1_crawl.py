@@ -32,7 +32,7 @@ def make_driver():
     
     # 💡 내 PC에서 눈으로 동작을 확인하고 싶다면 아래 줄의 맨 앞에 #을 붙여 주석처리하세요.
     # 깃허브 서버에 올릴 때는 반드시 주석을 풀어서 Headless 모드로 작동하게 해야 합니다.
-    #opts.add_argument("--headless=new")
+    opts.add_argument("--headless=new")
     
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
