@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 
-print("🚀 [Step 5] 정석님의 찐 v4.0 대시보드 (엑셀 다운로드 탑재) 배포 시작!")
+print("🚀 [Step 5] 정석님의 찐 v4.0 대시보드 (엑셀 다운로드 버그 픽스) 배포 시작!")
 
 # ---------------------------------------------------------
 # 1. 설정 및 구글 API 인증
@@ -149,7 +149,6 @@ html_content = f"""
 </div>
 <div class="container-fluid mt-3 px-3">
     
-    <!-- (중략) 상단 주간 트렌드 / 타사 비교표 영역은 그대로 -->
     <div class="card-box">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
@@ -243,8 +242,6 @@ html_content = f"""
                 <select id="scheduleCat" class="form-select form-select-sm" style="width:120px;"><option value="all">전체 카테고리</option></select>
                 <input type="text" id="prodSearch" class="form-control form-control-sm" placeholder="상품명 검색..." style="width:150px;">
                 <button class="btn btn-dark btn-sm px-3" onclick="renderSchedule()">조회</button>
-                
-                <!-- 📌 정석님 요청: 엑셀 다운로드 버튼 추가! -->
                 <button class="btn btn-success btn-sm px-3 ms-2" onclick="exportCSV()">Excel 다운로드</button>
             </div>
         </div>
@@ -511,32 +508,29 @@ html_content = f"""
         }});
     }}
 
-    // 📌 정석님 요청 기능: 현재 화면에 보이는 표 그대로 엑셀(CSV)로 다운로드하는 마법의 함수!
     function exportCSV() {{
-        // 한글 깨짐 방지를 위한 BOM 문자 추가
         let csv = '\\uFEFF';
         const table = document.getElementById('scheduleTable');
         const rows = table.querySelectorAll('tr');
 
         rows.forEach(row => {{
+            // 🚨 합계 줄(Total)은 엑셀 포맷을 깨뜨리므로 다운로드 시 건너뜁니다!
+            if (row.classList.contains('total-row')) return;
+
             const cols = row.querySelectorAll('th, td');
             const rowData = [];
             cols.forEach(col => {{
-                // 따옴표 치환 및 텍스트 앞뒤 공백 제거
                 let data = col.innerText.replace(/"/g, '""').trim();
-                // 모든 데이터를 따옴표로 감싸서 콤마(,) 충돌 방지
                 rowData.push('"' + data + '"');
             }});
             csv += rowData.join(',') + '\\n';
         }});
 
-        // 다운로드 트리거
         const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         
-        // 날짜를 포함한 멋진 파일명 자동 생성
         const startDate = document.getElementById('startDate').value;
         const endDate = document.getElementById('endDate').value;
         a.download = `라방바_편성표_추출(${{startDate}}~${{endDate}}).csv`;
