@@ -26,7 +26,9 @@ gc = gs_client_from_env()
 SOURCE_SHEET_ID = '1Aqwj1SkHsgAr08doidy_tfnHJNwgdFfNrMoMteoXMdE'
 TARGET_SHEET_ID = '106vkIpsodH2uRzb17hMrKz9uKW-BcM7VA4459-nySJ0'
 
-yesterday = datetime.now() - timedelta(days=1)
+# 서버의 UTC 시간에 9시간을 더해 한국 시간(KST)으로 강제 고정
+kst_now = datetime.utcnow() + timedelta(hours=9)
+yesterday = kst_now - timedelta(days=1)
 source_tab_name = yesterday.strftime('%y/%m/%d')
 
 print(f"📖 원본 시트 [{source_tab_name}] 탭 데이터 읽는 중...")
