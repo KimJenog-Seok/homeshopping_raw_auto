@@ -1,0 +1,31 @@
+name: Step 5 Deploy Dashboard HTML (KST)
+
+on:
+  schedule:
+    # 매일 06:30 KST = 전날 21:30 UTC (Step 4가 끝난 뒤 30분 여유)
+    - cron: "30 21 * * *"
+  workflow_dispatch:
+
+jobs:
+  deploy-html:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 환경 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 필요 라이브러리 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas gspread google-auth google-api-python-client
+
+      - name: Step 5 대시보드 배포 스크립트 실행
+        env:
+          # GitHub Secrets에 등록된 KEY1을 환경변수로 주입
+          KEY1: ${{ secrets.KEY1 }}
+        run: python step5_deploy_html.py
