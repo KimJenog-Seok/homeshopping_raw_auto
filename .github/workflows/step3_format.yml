@@ -2,8 +2,8 @@ name: Step 3 Format & Sort (KST)
 
 on:
   schedule:
-    # 최종: 05:30 KST = 전날 20:30 UTC
-    - cron: "30 20 * * *"
+    # 최종: 04:30 
+    - cron: "30 19 * * *"
   workflow_dispatch:
 
 jobs:
