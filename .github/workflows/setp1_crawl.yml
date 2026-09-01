@@ -2,8 +2,8 @@ name: Step 1 Crawl Daily (KST)
 
 on:
   schedule:
-  # 최종: 04:00 KST = 전날 19:00 UTC
-    - cron: "0 19 * * *"
+  # 최종: 03:00 
+    - cron: "0 18 * * *"
   workflow_dispatch:
 
 jobs:
