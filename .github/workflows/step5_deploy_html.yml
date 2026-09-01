@@ -2,8 +2,8 @@ name: Step 5 Deploy Dashboard HTML (KST)
 
 on:
   schedule:
-    # 매일 06:30 KST = 전날 21:30 UTC (Step 4가 끝난 뒤 30분 여유)
-    - cron: "30 21 * * *"
+    # 매일 05:30
+    - cron: "30 20 * * *"
   workflow_dispatch:
 
 jobs:
