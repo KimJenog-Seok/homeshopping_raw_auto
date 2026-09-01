@@ -10,7 +10,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 
-print("🚀 [Step 5] 대시보드 v5.0 (네트워크 압축 + 렌더링 최적화) 배포 시작!")
+print("🚀 [Step 5] 대시보드 v5.0 (네트워크 압축 + 그래프 UI 수정) 배포 시작!")
 
 TARGET_CATEGORIES = [
     '여성의류', '공용의류', '레포츠의류', '패션잡화', '쥬얼리', '언더웨어',
@@ -96,12 +96,11 @@ if '홈쇼핑구분' in df.columns: df['홈쇼핑구분'] = df['홈쇼핑구분'
 
 df = df[[c for c in final_cols if c in df.columns]]
 
-# 🚨 ZLIB + Base64 초고속 압축 포장 🚨
 print("🗜️ JSON 데이터 zlib 압축 중...")
 db_json_data = df.to_json(orient='records', force_ascii=False)
 compressed_bytes = zlib.compress(db_json_data.encode('utf-8'))
 b64_data = base64.b64encode(compressed_bytes).decode('utf-8')
-print("✅ 압축 완료 (네트워크 전송속도 비약적 상승!)")
+print("✅ 압축 완료")
 
 companies = sorted(df['회사명'].unique().tolist())
 priority = ['쇼핑엔티', '신세계쇼핑', 'SK스토아', 'KT알파쇼핑']
@@ -122,7 +121,6 @@ html_content = f"""
     <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
     <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- 🚨 압축 해제 라이브러리 추가 🚨 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <style>
         body {{ background-color: #f4f6f8; font-family: 'Pretendard', sans-serif; font-size: 0.9rem; }}
@@ -150,10 +148,9 @@ html_content = f"""
     </style>
 </head>
 <body>
-<!-- 로딩 화면 추가 -->
 <div id="loadingOverlay">
     <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
-    <h4 class="mt-3">데이터 압축 해제 및 최적화 중...</h4>
+    <h4 class="mt-3">데이터 최적화 렌더링 중...</h4>
 </div>
 
 <div class="header">
@@ -184,7 +181,7 @@ html_content = f"""
                 <tbody></tbody>
             </table>
         </div>
-        <div id="trendChart" style="height: 300px;"></div>
+        <div id="trendChart" style="height: 300px; width: 100%;"></div>
     </div>
 
     <div class="card-box">
@@ -272,7 +269,6 @@ html_content = f"""
 </div>
 
 <script>
-    // 🚨 파이썬이 보내준 압축 파일(Base64)을 즉시 해제 🚨
     const compressedBase64 = "{b64_data}";
     const binaryString = atob(compressedBase64);
     const uint8Array = new Uint8Array(binaryString.length);
@@ -316,10 +312,11 @@ html_content = f"""
         gubunOptions.forEach(g => $('#scheduleGubun').append(new Option(g, g)));
         catOrder.forEach(c => $('#scheduleCat').append(new Option(c, c)));
         
-        // 렌더링 시작 및 로딩 창 제거
-        renderAll();
+        // 🚨 렌더링 순서 완벽 제어: 화면을 먼저 띄운 다음 그래프를 그려서 크기 버그 해결! 🚨
         $('#loadingOverlay').fadeOut('fast', function() {{
-            $('#mainContent').fadeIn('fast');
+            $('#mainContent').fadeIn('fast', function() {{
+                renderAll(); 
+            }});
         }});
     }});
 
@@ -391,11 +388,13 @@ html_content = f"""
             traces.push({{ x: last12Weeks.map(w=>w[1]), y: yData, name: t, mode: 'lines+markers', line: {{width: t==='쇼핑엔티'?4:2}} }});
         }});
         $('#trendTable tbody').html(b);
+        
+        // 🚨 반응형 옵션(responsive: true) 추가 🚨
         Plotly.newPlot('trendChart', traces, {{
             margin: {{t:10, b:40, l:40, r:10}},
             legend: {{orientation:'h', y:1.2}},
             xaxis: {{ tickfont: {{ size: 10 }} }}
-        }});
+        }}, {{responsive: true}});
     }}
 
     function renderCompTable() {{
@@ -529,7 +528,6 @@ html_content = f"""
         $('#totalSales').text(Math.round(sumS/1000000).toLocaleString());
         $('#totalEff').text(sumT ? (sumS/sumT/1000000).toFixed(1) : '0.0');
         
-        // 🚨 꼼수 렌더링(deferRender) 옵션 켜기 🚨
         $('#scheduleTable').DataTable({{
             data: tableData, 
             order: [[0, 'desc'], [1, 'desc']], 
