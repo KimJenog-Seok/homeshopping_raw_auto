@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import zlib
 import gspread
 import pandas as pd
 from datetime import datetime, timedelta
@@ -9,11 +10,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 
-print("🚀 [Step 5] 정석님의 찐 v4.0 대시보드 (용량 초과 해결! 6개월 다이어트 버전) 배포 시작!")
+print("🚀 [Step 5] 대시보드 v5.0 (네트워크 압축 + 렌더링 최적화) 배포 시작!")
 
-# ---------------------------------------------------------
-# 1. 설정 및 구글 API 인증
-# ---------------------------------------------------------
 TARGET_CATEGORIES = [
     '여성의류', '공용의류', '레포츠의류', '패션잡화', '쥬얼리', '언더웨어',
     '건강식품', '뷰티', '가전', '리빙', '일반식품', '금융', '렌탈서비스', '여행'
@@ -33,13 +31,10 @@ scope = [
 ]
 creds = Credentials.from_service_account_info(svc_info, scopes=scope)
 
-# ---------------------------------------------------------
-# 2. 통합 DB(Master) 데이터 로드 및 전처리
-# ---------------------------------------------------------
 TARGET_SHEET_ID = '106vkIpsodH2uRzb17hMrKz9uKW-BcM7VA4459-nySJ0'
 gc = gspread.authorize(creds)
 
-print("📖 통합 DB 시트 데이터 읽는 중...")
+print("📖 통합 DB 데이터 읽는 중...")
 target_doc = gc.open_by_key(TARGET_SHEET_ID)
 target_ws = target_doc.worksheet('RAW')
 
@@ -60,14 +55,10 @@ df = df.dropna(subset=['방송날짜'])
 df['방송날짜'] = pd.to_datetime(df['방송날짜'], errors='coerce')
 df = df.dropna(subset=['방송날짜'])
 
-# 🚨🚨🚨 [핵심 해결책: 초강력 시간 다이어트] 🚨🚨🚨
-# GAS 웹앱 용량 초과 에러 방지를 위해, 최신일자 기준 "최근 180일(약 6개월)" 데이터만 잘라냅니다.
-print("✂️ 데이터 다이어트 중 (최근 6개월 치만 추출)...")
 max_date = df['방송날짜'].max()
 cutoff_date = max_date - timedelta(days=180)
 df = df[df['방송날짜'] >= cutoff_date]
-print(f"✅ 추출된 데이터 기간: {cutoff_date.strftime('%Y-%m-%d')} ~ {max_date.strftime('%Y-%m-%d')} (총 {len(df)}건)")
-# 🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
+print(f"✅ 추출 데이터: {cutoff_date.strftime('%Y-%m-%d')} ~ {max_date.strftime('%Y-%m-%d')} (총 {len(df)}건)")
 
 df['방송날짜_str'] = df['방송날짜'].dt.strftime('%Y-%m-%d')
 
@@ -105,11 +96,13 @@ if '홈쇼핑구분' in df.columns: df['홈쇼핑구분'] = df['홈쇼핑구분'
 
 df = df[[c for c in final_cols if c in df.columns]]
 
-# ---------------------------------------------------------
-# 3. HTML 생성
-# ---------------------------------------------------------
-print("🎨 HTML 렌더링 중...")
-data_json = df.to_json(orient='records', force_ascii=False)
+# 🚨 ZLIB + Base64 초고속 압축 포장 🚨
+print("🗜️ JSON 데이터 zlib 압축 중...")
+db_json_data = df.to_json(orient='records', force_ascii=False)
+compressed_bytes = zlib.compress(db_json_data.encode('utf-8'))
+b64_data = base64.b64encode(compressed_bytes).decode('utf-8')
+print("✅ 압축 완료 (네트워크 전송속도 비약적 상승!)")
+
 companies = sorted(df['회사명'].unique().tolist())
 priority = ['쇼핑엔티', '신세계쇼핑', 'SK스토아', 'KT알파쇼핑']
 sorted_comps = [c for c in priority if c in companies] + [c for c in companies if c not in priority]
@@ -122,13 +115,15 @@ html_content = f"""
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>홈쇼핑 주간 실적 현황 v4.0</title>
+    <title>홈쇼핑 주간 실적 현황 v5.0</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
     <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- 🚨 압축 해제 라이브러리 추가 🚨 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <style>
         body {{ background-color: #f4f6f8; font-family: 'Pretendard', sans-serif; font-size: 0.9rem; }}
         .header {{ background: #212529; color: white; padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; }}
@@ -151,14 +146,21 @@ html_content = f"""
         #scheduleCompMenu .dropdown-item {{ cursor: pointer; }}
         #scheduleCompMenu label {{ cursor: pointer; width: 100%; }}
         #scheduleCompBtn {{ text-align: left; }}
+        #loadingOverlay {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; }}
     </style>
 </head>
 <body>
+<!-- 로딩 화면 추가 -->
+<div id="loadingOverlay">
+    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+    <h4 class="mt-3">데이터 압축 해제 및 최적화 중...</h4>
+</div>
+
 <div class="header">
     <h4 class="m-0 fw-bold">홈쇼핑 주간 실적 현황</h4>
-    <span class="badge bg-primary">v4.0 일평균 기준 전환</span>
+    <span class="badge bg-primary">v5.0 압축 렌더링</span>
 </div>
-<div class="container-fluid mt-3 px-3">
+<div class="container-fluid mt-3 px-3" id="mainContent" style="display:none;">
     
     <div class="card-box">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -223,7 +225,6 @@ html_content = f"""
         </div>
     </div>
 
-    <!-- 편성표 영역 -->
     <div class="card-box">
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
             <div class="section-title m-0">📅 일자별 상세 편성표</div>
@@ -271,7 +272,16 @@ html_content = f"""
 </div>
 
 <script>
-    const rawData = {data_json};
+    // 🚨 파이썬이 보내준 압축 파일(Base64)을 즉시 해제 🚨
+    const compressedBase64 = "{b64_data}";
+    const binaryString = atob(compressedBase64);
+    const uint8Array = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {{
+        uint8Array[i] = binaryString.charCodeAt(i);
+    }}
+    const decompressedStr = pako.inflate(uint8Array, {{ to: 'string' }});
+    const rawData = JSON.parse(decompressedStr);
+
     const weekMap = {json.dumps(weeks, ensure_ascii=False)};
     const catOrder = {json.dumps(TARGET_CATEGORIES, ensure_ascii=False)};
     const grpFashion = {json.dumps(GROUP_FASHION, ensure_ascii=False)};
@@ -305,7 +315,12 @@ html_content = f"""
 
         gubunOptions.forEach(g => $('#scheduleGubun').append(new Option(g, g)));
         catOrder.forEach(c => $('#scheduleCat').append(new Option(c, c)));
+        
+        // 렌더링 시작 및 로딩 창 제거
         renderAll();
+        $('#loadingOverlay').fadeOut('fast', function() {{
+            $('#mainContent').fadeIn('fast');
+        }});
     }});
 
     $(document).on('change', '#scheduleCompAll', function() {{
@@ -513,8 +528,15 @@ html_content = f"""
         }});
         $('#totalSales').text(Math.round(sumS/1000000).toLocaleString());
         $('#totalEff').text(sumT ? (sumS/sumT/1000000).toFixed(1) : '0.0');
+        
+        // 🚨 꼼수 렌더링(deferRender) 옵션 켜기 🚨
         $('#scheduleTable').DataTable({{
-            data: tableData, order: [[0, 'desc'], [1, 'desc']], paging: false, searching: false, info: false,
+            data: tableData, 
+            order: [[0, 'desc'], [1, 'desc']], 
+            paging: false, 
+            searching: false, 
+            info: false,
+            deferRender: true,
             columnDefs: [{{ targets: 2, className: "text-start", render: (d)=>`<div class="text-truncate-custom" title="${{d}}">${{d}}</div>` }}]
         }});
     }}
@@ -526,7 +548,6 @@ html_content = f"""
 
         rows.forEach(row => {{
             if (row.classList.contains('total-row')) return;
-
             const cols = row.querySelectorAll('th, td');
             const rowData = [];
             cols.forEach(col => {{
@@ -553,9 +574,6 @@ html_content = f"""
 </html>
 """
 
-# ---------------------------------------------------------
-# 4. 구글 드라이브 업로드 (기존 파일 덮어쓰기)
-# ---------------------------------------------------------
 DRIVE_FOLDER_ID = '1EDN4y1K1_3icuoU8rBDXACowkxqd5Q5A'
 print("☁️ 구글 드라이브로 파일 업데이트 중...")
 drive_service = build('drive', 'v3', credentials=creds)
@@ -571,6 +589,6 @@ if items:
     drive_service.files().update(fileId=file_id, media_body=media).execute()
     print(f"✅ 구글 드라이브 index.html 덮어쓰기 완료! (ID: {file_id})")
 else:
-    print("❌ 드라이브에 index.html 파일이 없습니다. 빈 파일을 먼저 만들어주세요!")
+    print("❌ 드라이브에 index.html 파일이 없습니다.")
 
-print("🎉 [Step 5] 대시보드 HTML 배포 완벽 종료!")
+print("🎉 [Step 5] 대시보드 v5.0 완벽 배포 종료!")
