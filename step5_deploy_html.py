@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 
-print("🚀 [Step 5] 정석님의 찐 v4.0 대시보드 (엑셀 다운로드 버그 픽스) 배포 시작!")
+print("🚀 [Step 5] 정석님의 찐 v4.0 대시보드 (용량 초과 해결! 6개월 다이어트 버전) 배포 시작!")
 
 # ---------------------------------------------------------
 # 1. 설정 및 구글 API 인증
@@ -58,6 +58,17 @@ df = df_fmt
 df = df.dropna(subset=['방송날짜'])
 
 df['방송날짜'] = pd.to_datetime(df['방송날짜'], errors='coerce')
+df = df.dropna(subset=['방송날짜'])
+
+# 🚨🚨🚨 [핵심 해결책: 초강력 시간 다이어트] 🚨🚨🚨
+# GAS 웹앱 용량 초과 에러 방지를 위해, 최신일자 기준 "최근 180일(약 6개월)" 데이터만 잘라냅니다.
+print("✂️ 데이터 다이어트 중 (최근 6개월 치만 추출)...")
+max_date = df['방송날짜'].max()
+cutoff_date = max_date - timedelta(days=180)
+df = df[df['방송날짜'] >= cutoff_date]
+print(f"✅ 추출된 데이터 기간: {cutoff_date.strftime('%Y-%m-%d')} ~ {max_date.strftime('%Y-%m-%d')} (총 {len(df)}건)")
+# 🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
+
 df['방송날짜_str'] = df['방송날짜'].dt.strftime('%Y-%m-%d')
 
 def get_weekly_label(date_obj):
@@ -514,7 +525,6 @@ html_content = f"""
         const rows = table.querySelectorAll('tr');
 
         rows.forEach(row => {{
-            // 🚨 합계 줄(Total)은 엑셀 포맷을 깨뜨리므로 다운로드 시 건너뜁니다!
             if (row.classList.contains('total-row')) return;
 
             const cols = row.querySelectorAll('th, td');
