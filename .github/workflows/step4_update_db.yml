@@ -1,0 +1,32 @@
+name: Step 4 Update Master DB (KST)
+
+on:
+  schedule:
+    # 매일 06:00 KST = 전날 21:00 UTC
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+
+jobs:
+  update-db:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 환경 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 필요 라이브러리 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas gspread google-auth
+
+      - name: Step 4 통합 DB 업데이트 스크립트 실행
+        env:
+          # GitHub Secrets에 등록된 KEY1을 환경변수로 주입
+          KEY1: ${{ secrets.KEY1 }}
+        # 방금 만든 파이썬 파일 이름과 동일하게 맞춰줘
+        run: python step4_update_db.py
