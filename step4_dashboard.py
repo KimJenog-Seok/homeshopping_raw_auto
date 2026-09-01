@@ -117,7 +117,7 @@ if not df_target_existing.empty:
     if '방송날짜_fmt' in df_preserved.columns:
         df_preserved.drop(columns=['방송날짜_fmt'], inplace=True)
         
-    print(f"🧹 최근 {days_to_sync일} 치 대상 데이터 갱신을 위해 Master DB 재구축 진행...")
+    print(f"🧹 최근 {days_to_sync}일 치 대상 데이터 갱신을 위해 Master DB 재구축 진행...")
     
     # 누락 컬럼 맞추기
     for col in target_headers:
