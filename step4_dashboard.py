@@ -33,16 +33,33 @@ print(f"📖 원본 시트 [{source_tab_name}] 탭 데이터 읽는 중...")
 try:
     source_doc = gc.open_by_key(SOURCE_SHEET_ID)
     source_ws = source_doc.worksheet(source_tab_name)
-    source_data = source_ws.get_all_records()
+    
+    # 📌 1. 눈에 보이는 텍스트 그대로 가져오기 (날짜, 시간, 문자열 보호용)
+    source_data_fmt = source_ws.get_all_records(value_render_option='FORMATTED_VALUE')
+    # 📌 2. 서식을 벗겨낸 순수한 숫자 데이터 그대로 가져오기 (소수점 구출용)
+    source_data_raw = source_ws.get_all_records(value_render_option='UNFORMATTED_VALUE')
 except gspread.exceptions.WorksheetNotFound:
     print(f"❌ '{source_tab_name}' 탭을 찾을 수 없습니다. 프로세스를 종료합니다.")
     exit()
 
-df_source = pd.DataFrame(source_data)
+df_fmt = pd.DataFrame(source_data_fmt)
+df_raw = pd.DataFrame(source_data_raw)
 
-if df_source.empty:
+if df_fmt.empty:
     print("❌ 어제 날짜의 데이터가 없습니다. 프로세스를 종료합니다.")
     exit()
+
+# 양쪽 헤더의 앞뒤 공백 제거
+df_fmt.columns = df_fmt.columns.astype(str).str.strip()
+df_raw.columns = df_raw.columns.astype(str).str.strip()
+
+# 📌 3. 미세한 소수점을 살려야 하는 숫자 컬럼들만 핀셋으로 교체!
+numeric_cols = ['판매량', '매출액', '상품수', '매출액 환산수식', '환산가치', '분리송출고려환산가치', '주문효율 /h']
+for col in numeric_cols:
+    if col in df_fmt.columns and col in df_raw.columns:
+        df_fmt[col] = df_raw[col]
+
+df_source = df_fmt
 
 formatted_date = pd.to_datetime(df_source['방송날짜']).dt.strftime('%Y-%m-%d')
 df_source['키값'] = formatted_date + df_source['방송시작시간'].astype(str) + df_source['방송정보'].astype(str) + df_source['회사명'].astype(str)
@@ -56,8 +73,6 @@ if '키값' not in target_headers:
     print("❌ Master DB에 '키값' 컬럼이 없습니다. 확인해주세요!")
     exit()
 
-# 📌 핵심 패치: 양쪽 헤더의 앞뒤 공백을 모두 제거하여 완벽 매칭!
-df_source.columns = df_source.columns.astype(str).str.strip()
 target_headers = [str(col).strip() for col in target_headers]
 
 key_col_idx = target_headers.index('키값') + 1
