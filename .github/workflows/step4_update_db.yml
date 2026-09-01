@@ -29,4 +29,4 @@ jobs:
           # GitHub Secrets에 등록된 KEY1을 환경변수로 주입
           KEY1: ${{ secrets.KEY1 }}
         # 방금 만든 파이썬 파일 이름과 동일하게 맞춰줘
-        run: python step4_update_db.py
+        run: python step4_dashboard.py
