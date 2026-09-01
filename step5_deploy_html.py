@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 
-print("🚀 [Step 5] 정석님의 찐 v4.0 대시보드 HTML 배포 시작!")
+print("🚀 [Step 5] 정석님의 찐 v4.0 대시보드 (엑셀 다운로드 탑재) 배포 시작!")
 
 # ---------------------------------------------------------
 # 1. 설정 및 구글 API 인증
@@ -34,23 +34,21 @@ scope = [
 creds = Credentials.from_service_account_info(svc_info, scopes=scope)
 
 # ---------------------------------------------------------
-# 2. 통합 DB(Master) 데이터 로드 및 전처리 (투트랙 스캔)
+# 2. 통합 DB(Master) 데이터 로드 및 전처리
 # ---------------------------------------------------------
 TARGET_SHEET_ID = '106vkIpsodH2uRzb17hMrKz9uKW-BcM7VA4459-nySJ0'
 gc = gspread.authorize(creds)
 
-print("📖 통합 DB 시트 데이터 읽는 중... (날짜와 소수점 모두 보호!)")
+print("📖 통합 DB 시트 데이터 읽는 중...")
 target_doc = gc.open_by_key(TARGET_SHEET_ID)
 target_ws = target_doc.worksheet('RAW')
 
-# 날짜/문자는 보이는 대로(FORMATTED), 숫자는 날것으로(UNFORMATTED) 긁어옵니다.
 df_fmt = pd.DataFrame(target_ws.get_all_records(value_render_option='FORMATTED_VALUE'))
 df_raw = pd.DataFrame(target_ws.get_all_records(value_render_option='UNFORMATTED_VALUE'))
 
 df_fmt.columns = df_fmt.columns.astype(str).str.strip()
 df_raw.columns = df_raw.columns.astype(str).str.strip()
 
-# 숫자형 컬럼만 소수점이 살아있는 raw 데이터로 교체
 numeric_cols_target = ['판매량', '매출액', '상품수', '매출액 환산수식', '환산가치', '분리송출고려환산가치', '주문효율 /h']
 for col in numeric_cols_target:
     if col in df_fmt.columns and col in df_raw.columns:
@@ -59,7 +57,6 @@ for col in numeric_cols_target:
 df = df_fmt
 df = df.dropna(subset=['방송날짜'])
 
-# [정석님 기존 데이터 전처리 로직 100% 적용]
 df['방송날짜'] = pd.to_datetime(df['방송날짜'], errors='coerce')
 df['방송날짜_str'] = df['방송날짜'].dt.strftime('%Y-%m-%d')
 
@@ -98,9 +95,9 @@ if '홈쇼핑구분' in df.columns: df['홈쇼핑구분'] = df['홈쇼핑구분'
 df = df[[c for c in final_cols if c in df.columns]]
 
 # ---------------------------------------------------------
-# 3. HTML 생성 (v4.0 수정본 - 일평균 전환 + 편성표 필터 개선)
+# 3. HTML 생성
 # ---------------------------------------------------------
-print("🎨 홈쇼핑 주간 실적 현황(v4.0_일평균전환) 생성 중...")
+print("🎨 HTML 렌더링 중...")
 data_json = df.to_json(orient='records', force_ascii=False)
 companies = sorted(df['회사명'].unique().tolist())
 priority = ['쇼핑엔티', '신세계쇼핑', 'SK스토아', 'KT알파쇼핑']
@@ -151,6 +148,8 @@ html_content = f"""
     <span class="badge bg-primary">v4.0 일평균 기준 전환</span>
 </div>
 <div class="container-fluid mt-3 px-3">
+    
+    <!-- (중략) 상단 주간 트렌드 / 타사 비교표 영역은 그대로 -->
     <div class="card-box">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
@@ -214,6 +213,7 @@ html_content = f"""
         </div>
     </div>
 
+    <!-- 편성표 영역 -->
     <div class="card-box">
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
             <div class="section-title m-0">📅 일자별 상세 편성표</div>
@@ -243,6 +243,9 @@ html_content = f"""
                 <select id="scheduleCat" class="form-select form-select-sm" style="width:120px;"><option value="all">전체 카테고리</option></select>
                 <input type="text" id="prodSearch" class="form-control form-control-sm" placeholder="상품명 검색..." style="width:150px;">
                 <button class="btn btn-dark btn-sm px-3" onclick="renderSchedule()">조회</button>
+                
+                <!-- 📌 정석님 요청: 엑셀 다운로드 버튼 추가! -->
+                <button class="btn btn-success btn-sm px-3 ms-2" onclick="exportCSV()">Excel 다운로드</button>
             </div>
         </div>
         <div class="table-responsive">
@@ -506,6 +509,40 @@ html_content = f"""
             data: tableData, order: [[0, 'desc'], [1, 'desc']], paging: false, searching: false, info: false,
             columnDefs: [{{ targets: 2, className: "text-start", render: (d)=>`<div class="text-truncate-custom" title="${{d}}">${{d}}</div>` }}]
         }});
+    }}
+
+    // 📌 정석님 요청 기능: 현재 화면에 보이는 표 그대로 엑셀(CSV)로 다운로드하는 마법의 함수!
+    function exportCSV() {{
+        // 한글 깨짐 방지를 위한 BOM 문자 추가
+        let csv = '\\uFEFF';
+        const table = document.getElementById('scheduleTable');
+        const rows = table.querySelectorAll('tr');
+
+        rows.forEach(row => {{
+            const cols = row.querySelectorAll('th, td');
+            const rowData = [];
+            cols.forEach(col => {{
+                // 따옴표 치환 및 텍스트 앞뒤 공백 제거
+                let data = col.innerText.replace(/"/g, '""').trim();
+                // 모든 데이터를 따옴표로 감싸서 콤마(,) 충돌 방지
+                rowData.push('"' + data + '"');
+            }});
+            csv += rowData.join(',') + '\\n';
+        }});
+
+        // 다운로드 트리거
+        const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        
+        // 날짜를 포함한 멋진 파일명 자동 생성
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        a.download = `라방바_편성표_추출(${{startDate}}~${{endDate}}).csv`;
+        
+        a.click();
+        URL.revokeObjectURL(url);
     }}
 </script>
 </body>
