@@ -35,8 +35,8 @@ kst_now = datetime.utcnow() + timedelta(hours=9)
 # 📌 1. 7일치 데이터를 담을 빈 리스트 생성
 all_dfs = []
 
-# 📌 2. D-1 부터 D-7까지 반복하며 탭 긁어오기
-for i in range(1, 8):
+# 📌 2. D-7 부터 D-1까지 (과거 -> 최신 순으로) 반복하며 탭 긁어오기
+for i in range(7, 0, -1):
     target_date = kst_now - timedelta(days=i)
     source_tab_name = target_date.strftime('%y/%m/%d')
     
