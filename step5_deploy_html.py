@@ -10,7 +10,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 
-print("🚀 [Step 5] 대시보드 v5.1 (시간 오름차순 정렬 수정) 배포 시작!")
+print("🚀 [Step 5] 대시보드 v5.2 (중괄호 에러 완벽 수정) 배포 시작!")
 
 TARGET_CATEGORIES = [
     '여성의류', '공용의류', '레포츠의류', '패션잡화', '쥬얼리', '언더웨어',
@@ -114,7 +114,7 @@ html_content = f"""
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>홈쇼핑 주간 실적 현황 v5.1</title>
+    <title>홈쇼핑 주간 실적 현황 v5.2</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -155,7 +155,7 @@ html_content = f"""
 
 <div class="header">
     <h4 class="m-0 fw-bold">홈쇼핑 주간 실적 현황</h4>
-    <span class="badge bg-primary">v5.1 정렬 수정</span>
+    <span class="badge bg-primary">v5.2 정렬/검색 수정</span>
 </div>
 <div class="container-fluid mt-3 px-3" id="mainContent" style="display:none;">
     
@@ -505,38 +505,38 @@ html_content = f"""
         $('#compTable tbody').html(b);
     }}
 
-    function renderSchedule() {
+    function renderSchedule() {{
         const start = $('#startDate').val(), end = $('#endDate').val();
         const selectedComps = getSelectedSchedComps();
         const gubun = $('#scheduleGubun').val();
         const cat = $('#scheduleCat').val(), searchTxt = $('#prodSearch').val().trim().toLowerCase();
         if ($.fn.DataTable.isDataTable('#scheduleTable')) $('#scheduleTable').DataTable().destroy();
         
-        const filtered = rawData.filter(d => {
+        const filtered = rawData.filter(d => {{
             return d['방송날짜_str'] >= start && d['방송날짜_str'] <= end
                 && (selectedComps.length===0 || selectedComps.includes(d['회사명']))
                 && (gubun==='전체' || d['홈쇼핑구분']===gubun)
                 && (cat==='all'||d['카테고리']===cat)
                 && (searchTxt===''||d['상품명'].toLowerCase().includes(searchTxt));
-        });
+        }});
 
-        // 💡 자바스크립트에서 미리 날짜 및 시간순(오름차순)으로 완벽 정렬!
-        filtered.sort((a, b) => {
-            if (a['방송날짜_str'] !== b['방송날짜_str']) {
+        // 자바스크립트에서 미리 날짜 및 시간순(오름차순)으로 완벽 정렬
+        filtered.sort((a, b) => {{
+            if (a['방송날짜_str'] !== b['방송날짜_str']) {{
                 return a['방송날짜_str'].localeCompare(b['방송날짜_str']);
-            }
+            }}
             let tA = a['방송시작시간'].substring(0,5).split(':');
             let nA = (parseInt(tA[0])||0)*60 + (parseInt(tA[1])||0);
             let tB = b['방송시작시간'].substring(0,5).split(':');
             let nB = (parseInt(tB[0])||0)*60 + (parseInt(tB[1])||0);
             return nA - nB;
-        });
+        }});
 
         let sumS = 0, sumT = 0;
-        const tableData = filtered.map(d => {
+        const tableData = filtered.map(d => {{
             sumS += d['주문금액']; if(!grpIntangible.includes(d['카테고리'])) sumT += d['가치시간'];
             
-            // 딱 9개의 컬럼 데이터만 정확히 반환 (쓸데없는 숨김 숫자 제거!)
+            // 딱 9개의 컬럼 데이터만 정확히 반환
             return [
                 d['방송날짜_str'], 
                 d['방송시작시간'].substring(0,5), 
@@ -548,23 +548,23 @@ html_content = f"""
                 Math.round(d['주문금액']/1000000).toLocaleString(), 
                 (d['주문효율']/1000000).toFixed(1)
             ];
-        });
+        }});
         
         $('#totalSales').text(Math.round(sumS/1000000).toLocaleString());
         $('#totalEff').text(sumT ? (sumS/sumT/1000000).toFixed(1) : '0.0');
         
-        $('#scheduleTable').DataTable({
+        $('#scheduleTable').DataTable({{
             data: tableData, 
-            order: [], // 이미 위에서 완벽하게 정렬해서 넘겼으므로 추가 정렬 불필요
+            order: [], 
             paging: false, 
             searching: false, 
             info: false,
             deferRender: true,
             columnDefs: [
-                { targets: 2, className: "text-start", render: (d)=>`<div class="text-truncate-custom" title="${{d}}">${{d}}</div>` }
+                {{ targets: 2, className: "text-start", render: (d)=>`<div class="text-truncate-custom" title="${{d}}">${{d}}</div>` }}
             ]
-        });
-    }
+        }});
+    }}
 
     function exportCSV() {{
         let csv = '\\uFEFF';
@@ -616,4 +616,4 @@ if items:
 else:
     print("❌ 드라이브에 index.html 파일이 없습니다.")
 
-print("🎉 [Step 5] 대시보드 v5.1 완벽 배포 종료!")
+print("🎉 [Step 5] 대시보드 v5.2 완벽 배포 종료!")
