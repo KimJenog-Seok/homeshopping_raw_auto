@@ -10,7 +10,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 
-print("🚀 [Step 5] 대시보드 v5.0 (네트워크 압축 + 그래프 UI 수정) 배포 시작!")
+print("🚀 [Step 5] 대시보드 v5.1 (시간 오름차순 정렬 수정) 배포 시작!")
 
 TARGET_CATEGORIES = [
     '여성의류', '공용의류', '레포츠의류', '패션잡화', '쥬얼리', '언더웨어',
@@ -114,7 +114,7 @@ html_content = f"""
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>홈쇼핑 주간 실적 현황 v5.0</title>
+    <title>홈쇼핑 주간 실적 현황 v5.1</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -155,7 +155,7 @@ html_content = f"""
 
 <div class="header">
     <h4 class="m-0 fw-bold">홈쇼핑 주간 실적 현황</h4>
-    <span class="badge bg-primary">v5.0 압축 렌더링</span>
+    <span class="badge bg-primary">v5.1 정렬 수정</span>
 </div>
 <div class="container-fluid mt-3 px-3" id="mainContent" style="display:none;">
     
@@ -312,7 +312,6 @@ html_content = f"""
         gubunOptions.forEach(g => $('#scheduleGubun').append(new Option(g, g)));
         catOrder.forEach(c => $('#scheduleCat').append(new Option(c, c)));
         
-        // 🚨 렌더링 순서 완벽 제어: 화면을 먼저 띄운 다음 그래프를 그려서 크기 버그 해결! 🚨
         $('#loadingOverlay').fadeOut('fast', function() {{
             $('#mainContent').fadeIn('fast', function() {{
                 renderAll(); 
@@ -389,7 +388,6 @@ html_content = f"""
         }});
         $('#trendTable tbody').html(b);
         
-        // 🚨 반응형 옵션(responsive: true) 추가 🚨
         Plotly.newPlot('trendChart', traces, {{
             margin: {{t:10, b:40, l:40, r:10}},
             legend: {{orientation:'h', y:1.2}},
@@ -454,8 +452,8 @@ html_content = f"""
             const ntEntry = getEntry(curr, '쇼핑엔티', type, catName);
             const ntRealT = curr.total['쇼핑엔티'].t_real;
             const ntDays = ntEntry.days.size;
-            let ntEffBase = (type==='grandtotal' && (mode==='perf'||mode==='compEff')) ? (ntRealT?ntEntry.s/ntRealT:0) : (ntEntry.t?ntEntry.s/ntEntry.t:0);
             let ntVal = calc(ntEntry.s, (type==='grandtotal' && (mode==='perf'||mode==='compEff'))?ntRealT:ntEntry.t, curr.total['쇼핑엔티'].t, ntDays);
+            let ntEffBase = (type==='grandtotal' && (mode==='perf'||mode==='compEff')) ? (ntRealT?ntEntry.s/ntRealT:0) : (ntEntry.t?ntEntry.s/ntEntry.t:0);
 
             if(mode !== 'compEff' && prev) {{
                 const pEntry = getEntry(prev, '쇼핑엔티', type, catName);
@@ -523,19 +521,42 @@ html_content = f"""
         let sumS = 0, sumT = 0;
         const tableData = filtered.map(d => {{
             sumS += d['주문금액']; if(!grpIntangible.includes(d['카테고리'])) sumT += d['가치시간'];
-            return [d['방송날짜_str'], d['방송시작시간'].substring(0,5), d['상품명'], d['카테고리'], d['판매량'].toLocaleString(), d['회사명'], d['홈쇼핑구분'], Math.round(d['주문금액']/1000000).toLocaleString(), (d['주문효율']/1000000).toFixed(1)];
+            
+            // 💡 정렬을 위해 시간을 분(Minute) 단위 숫자로 환산하여 숨겨서 넣거나 파싱 가능하게 처리
+            // 여기서는 시:분 문자열을 '숫자'로 정확히 정렬하기 위해, 배열에 [날짜, 시간, ... 형식]으로 넣되
+            // DataTable 자체의 type 설정으로 숫자로 다루게 합니다.
+            let timeStr = d['방송시작시간'].substring(0,5);
+            let timeParts = timeStr.split(':');
+            let timeNum = (parseInt(timeParts[0]) || 0) * 60 + (parseInt(timeParts[1]) || 0);
+
+            return [
+                d['방송날짜_str'], 
+                timeStr, // 화면에 표시될 시간 문자열
+                d['상품명'], 
+                d['카테고리'], 
+                d['판매량'].toLocaleString(), 
+                d['회사명'], 
+                d['홈쇼핑구분'], 
+                Math.round(d['주문금액']/1000000).toLocaleString(), 
+                (d['주문효율']/1000000).toFixed(1),
+                timeNum // 👈 정렬용 히든 숫자로 활용 가능하도록 뒤에 남겨둠
+            ];
         }});
         $('#totalSales').text(Math.round(sumS/1000000).toLocaleString());
         $('#totalEff').text(sumT ? (sumS/sumT/1000000).toFixed(1) : '0.0');
         
         $('#scheduleTable').DataTable({{
             data: tableData, 
-            order: [[0, 'desc'], [1, 'desc']], 
+            // 🚨 [핵심 수정] 날짜(0번) 오름차순('asc'), 시간(1번 혹은 파싱된 9번 컬럼) 오름차순('asc')으로 완벽 고정! 🚨
+            order: [[0, 'asc'], [9, 'asc']], 
             paging: false, 
             searching: false, 
             info: false,
             deferRender: true,
-            columnDefs: [{{ targets: 2, className: "text-start", render: (d)=>`<div class="text-truncate-custom" title="${{d}}">${{d}}</div>` }}]
+            columnDefs: [
+                {{ targets: 2, className: "text-start", render: (d)=>`<div class="text-truncate-custom" title="${{d}}">${{d}}</div>` }},
+                {{ targets: 9, visible: false }} // 👈 정렬용 숫자는 화면에 안 보이게 숨김 처리
+            ]
         }});
     }}
 
@@ -589,4 +610,4 @@ if items:
 else:
     print("❌ 드라이브에 index.html 파일이 없습니다.")
 
-print("🎉 [Step 5] 대시보드 v5.0 완벽 배포 종료!")
+print("🎉 [Step 5] 대시보드 v5.1 완벽 배포 종료!")
