@@ -505,60 +505,66 @@ html_content = f"""
         $('#compTable tbody').html(b);
     }}
 
-    function renderSchedule() {{
+    function renderSchedule() {
         const start = $('#startDate').val(), end = $('#endDate').val();
         const selectedComps = getSelectedSchedComps();
         const gubun = $('#scheduleGubun').val();
         const cat = $('#scheduleCat').val(), searchTxt = $('#prodSearch').val().trim().toLowerCase();
         if ($.fn.DataTable.isDataTable('#scheduleTable')) $('#scheduleTable').DataTable().destroy();
-        const filtered = rawData.filter(d => {{
+        
+        const filtered = rawData.filter(d => {
             return d['방송날짜_str'] >= start && d['방송날짜_str'] <= end
                 && (selectedComps.length===0 || selectedComps.includes(d['회사명']))
                 && (gubun==='전체' || d['홈쇼핑구분']===gubun)
                 && (cat==='all'||d['카테고리']===cat)
                 && (searchTxt===''||d['상품명'].toLowerCase().includes(searchTxt));
-        }});
+        });
+
+        // 💡 자바스크립트에서 미리 날짜 및 시간순(오름차순)으로 완벽 정렬!
+        filtered.sort((a, b) => {
+            if (a['방송날짜_str'] !== b['방송날짜_str']) {
+                return a['방송날짜_str'].localeCompare(b['방송날짜_str']);
+            }
+            let tA = a['방송시작시간'].substring(0,5).split(':');
+            let nA = (parseInt(tA[0])||0)*60 + (parseInt(tA[1])||0);
+            let tB = b['방송시작시간'].substring(0,5).split(':');
+            let nB = (parseInt(tB[0])||0)*60 + (parseInt(tB[1])||0);
+            return nA - nB;
+        });
+
         let sumS = 0, sumT = 0;
-        const tableData = filtered.map(d => {{
+        const tableData = filtered.map(d => {
             sumS += d['주문금액']; if(!grpIntangible.includes(d['카테고리'])) sumT += d['가치시간'];
             
-            // 💡 정렬을 위해 시간을 분(Minute) 단위 숫자로 환산하여 숨겨서 넣거나 파싱 가능하게 처리
-            // 여기서는 시:분 문자열을 '숫자'로 정확히 정렬하기 위해, 배열에 [날짜, 시간, ... 형식]으로 넣되
-            // DataTable 자체의 type 설정으로 숫자로 다루게 합니다.
-            let timeStr = d['방송시작시간'].substring(0,5);
-            let timeParts = timeStr.split(':');
-            let timeNum = (parseInt(timeParts[0]) || 0) * 60 + (parseInt(timeParts[1]) || 0);
-
+            // 딱 9개의 컬럼 데이터만 정확히 반환 (쓸데없는 숨김 숫자 제거!)
             return [
                 d['방송날짜_str'], 
-                timeStr, // 화면에 표시될 시간 문자열
+                d['방송시작시간'].substring(0,5), 
                 d['상품명'], 
                 d['카테고리'], 
                 d['판매량'].toLocaleString(), 
                 d['회사명'], 
                 d['홈쇼핑구분'], 
                 Math.round(d['주문금액']/1000000).toLocaleString(), 
-                (d['주문효율']/1000000).toFixed(1),
-                timeNum // 👈 정렬용 히든 숫자로 활용 가능하도록 뒤에 남겨둠
+                (d['주문효율']/1000000).toFixed(1)
             ];
-        }});
+        });
+        
         $('#totalSales').text(Math.round(sumS/1000000).toLocaleString());
         $('#totalEff').text(sumT ? (sumS/sumT/1000000).toFixed(1) : '0.0');
         
-        $('#scheduleTable').DataTable({{
+        $('#scheduleTable').DataTable({
             data: tableData, 
-            // 🚨 [핵심 수정] 날짜(0번) 오름차순('asc'), 시간(1번 혹은 파싱된 9번 컬럼) 오름차순('asc')으로 완벽 고정! 🚨
-            order: [[0, 'asc'], [9, 'asc']], 
+            order: [], // 이미 위에서 완벽하게 정렬해서 넘겼으므로 추가 정렬 불필요
             paging: false, 
             searching: false, 
             info: false,
             deferRender: true,
             columnDefs: [
-                {{ targets: 2, className: "text-start", render: (d)=>`<div class="text-truncate-custom" title="${{d}}">${{d}}</div>` }},
-                {{ targets: 9, visible: false }} // 👈 정렬용 숫자는 화면에 안 보이게 숨김 처리
+                { targets: 2, className: "text-start", render: (d)=>`<div class="text-truncate-custom" title="${{d}}">${{d}}</div>` }
             ]
-        }});
-    }}
+        });
+    }
 
     function exportCSV() {{
         let csv = '\\uFEFF';
