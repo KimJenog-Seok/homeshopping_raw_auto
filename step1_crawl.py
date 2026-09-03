@@ -83,13 +83,19 @@ def login_and_handle_session(driver):
                 time.sleep(2)
     except Exception:
         pass
-    print("✅ 로그인 성공 판정!")
+    # === login_and_handle_session 함수 마지막 부분 ===
+    print("✅ 로그인 성공 판정! 현재 URL:", curr)
+    save_debug(driver, "login_success")
+    
+    # 💡 쿠키가 브라우저에 완전히 저장될 수 있도록 여유를 줍니다.
+    time.sleep(3)
 
 def crawl_schedule(driver):
     # 기존과 완벽히 동일 (생략 없이 원본 유지)
     driver.get(SCHEDULE_URL)
     print("✅ 편성표 홈쇼핑 페이지 이동 완료")
-    time.sleep(2)
+    # 이동 직후 로그인 상태 안정회 시간 확보
+    time.sleep(3)
 
     KST = timezone(timedelta(hours=9))
     yesterday = datetime.now(KST).date() - timedelta(days=1)
