@@ -85,7 +85,6 @@ def login_and_handle_session(driver):
         pass
     # === login_and_handle_session 함수 마지막 부분 ===
     print(f"✅ 로그인 성공 판정! 현재 URL: {driver.current_url}")
-    save_debug(driver, "login_success")
     
     # 💡 쿠키가 브라우저에 완전히 저장될 수 있도록 여유를 줍니다.
     time.sleep(3)
