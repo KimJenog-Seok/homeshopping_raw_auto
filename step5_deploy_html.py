@@ -4,6 +4,7 @@ import base64
 import zlib
 import gspread
 import pandas as pd
+import re  # 💡 정규식 처리를 위해 추가됨
 from datetime import datetime, timedelta
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -87,6 +88,21 @@ for k, v in rename_map.items():
         df = df.rename(columns={k: v})
     elif v not in df.columns:
         df[v] = 0
+
+# 💡 [수정] 제 실수로 누락되었던 24시간제 강제 변환 로직 추가
+def parse_time_str(val):
+    s = str(val).strip()
+    m = re.search(r'(\d{1,2}):(\d{2})', s)
+    if not m: return s
+    
+    h, minute = int(m.group(1)), m.group(2)
+    if ('오후' in s or 'PM' in s.upper()) and h < 12: h += 12
+    elif ('오전' in s or 'AM' in s.upper()) and h == 12: h = 0
+        
+    return f"{h:02d}:{minute}"
+
+if '방송시작시간' in df.columns:
+    df['방송시작시간'] = df['방송시작시간'].apply(parse_time_str)
 
 final_cols = ['방송날짜_str', '주차', '주차_시작일', '방송시작시간', '상품명', '카테고리', '판매량', '회사명', '홈쇼핑구분', '주문금액', '가치시간', '주문효율']
 numeric_cols = ['판매량', '주문금액', '가치시간', '주문효율']
@@ -520,7 +536,6 @@ html_content = f"""
                 && (searchTxt===''||d['상품명'].toLowerCase().includes(searchTxt));
         }});
 
-        // 자바스크립트에서 미리 날짜 및 시간순(오름차순)으로 완벽 정렬
         filtered.sort((a, b) => {{
             if (a['방송날짜_str'] !== b['방송날짜_str']) {{
                 return a['방송날짜_str'].localeCompare(b['방송날짜_str']);
@@ -536,7 +551,6 @@ html_content = f"""
         const tableData = filtered.map(d => {{
             sumS += d['주문금액']; if(!grpIntangible.includes(d['카테고리'])) sumT += d['가치시간'];
             
-            // 딱 9개의 컬럼 데이터만 정확히 반환
             return [
                 d['방송날짜_str'], 
                 d['방송시작시간'].substring(0,5), 
@@ -567,7 +581,7 @@ html_content = f"""
     }}
 
     function exportCSV() {{
-        let csv = '\\uFEFF';
+        let csv = '\uFEFF';
         const table = document.getElementById('scheduleTable');
         const rows = table.querySelectorAll('tr');
 
@@ -579,7 +593,7 @@ html_content = f"""
                 let data = col.innerText.replace(/"/g, '""').trim();
                 rowData.push('"' + data + '"');
             }});
-            csv += rowData.join(',') + '\\n';
+            csv += rowData.join(',') + '\n';
         }});
 
         const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }});
