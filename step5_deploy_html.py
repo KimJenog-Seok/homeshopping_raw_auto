@@ -4,7 +4,7 @@ import base64
 import zlib
 import gspread
 import pandas as pd
-import re  # 💡 정규식 처리를 위해 추가됨
+import re
 from datetime import datetime, timedelta
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -89,7 +89,7 @@ for k, v in rename_map.items():
     elif v not in df.columns:
         df[v] = 0
 
-# 💡 [수정] 제 실수로 누락되었던 24시간제 강제 변환 로직 추가
+# 💡 24시간제 강제 변환 로직
 def parse_time_str(val):
     s = str(val).strip()
     m = re.search(r'(\d{1,2}):(\d{2})', s)
@@ -581,7 +581,7 @@ html_content = f"""
     }}
 
     function exportCSV() {{
-        let csv = '\uFEFF';
+        let csv = '\\uFEFF';
         const table = document.getElementById('scheduleTable');
         const rows = table.querySelectorAll('tr');
 
@@ -593,7 +593,7 @@ html_content = f"""
                 let data = col.innerText.replace(/"/g, '""').trim();
                 rowData.push('"' + data + '"');
             }});
-            csv += rowData.join(',') + '\n';
+            csv += rowData.join(',') + '\\n';
         }});
 
         const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }});
