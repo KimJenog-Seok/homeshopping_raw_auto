@@ -13,6 +13,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys  # 💡 추가된 모듈 (엔터키 입력용)
 
 # ===================== 설정 =====================
 WAIT = 5
@@ -30,17 +31,27 @@ WORKSHEET_NAME = "편성표RAW"
 def make_driver():
     opts = webdriver.ChromeOptions()
     
-    # 💡 내 PC에서 눈으로 동작을 확인하고 싶다면 아래 줄의 맨 앞에 #을 붙여 주석처리하세요.
-    # 깃허브 서버에 올릴 때는 반드시 주석을 풀어서 Headless 모드로 작동하게 해야 합니다.
     opts.add_argument("--headless=new")
-    
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-gpu")
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--lang=ko-KR")
-    opts.add_argument("user-agent=Mozilla/5.0 Chrome/122.0.0.0 Safari/537.36")
+    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    
+    # 💡 봇(Bot) 탐지 우회 옵션 추가 (셀레니움이 사람인 척 위장)
+    opts.add_argument("--disable-blink-features=AutomationControlled")
+    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    opts.add_experimental_option('useAutomationExtension', False)
+    
     driver = webdriver.Chrome(options=opts)
+    driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+        'source': '''
+            Object.defineProperty(navigator, 'webdriver', {
+              get: () => undefined
+            })
+        '''
+    })
     driver.set_page_load_timeout(60)
     return driver
 
@@ -51,7 +62,8 @@ def login_and_handle_session(driver):
     login_link = WebDriverWait(driver, WAIT).until(
         EC.element_to_be_clickable((By.LINK_TEXT, "로그인"))
     )
-    driver.execute_script("arguments[0].click();", login_link)
+    # 💡 강제 클릭 대신 일반적인 클릭으로 변경
+    login_link.click()
     
     t0 = time.time()
     while "/user/sign_in" not in driver.current_url:
@@ -59,19 +71,33 @@ def login_and_handle_session(driver):
             raise Exception("로그인 페이지 진입 실패 (타임아웃)")
         time.sleep(0.5)
 
-    time.sleep(1)
+    time.sleep(2) # 입력창 활성화 대기
     email_input = [e for e in driver.find_elements(By.CSS_SELECTOR, "input[name='email']") if e.is_displayed()][0]
     pw_input    = [e for e in driver.find_elements(By.CSS_SELECTOR, "input[name='password']") if e.is_displayed()][0]
-    email_input.clear(); email_input.send_keys(ECOMM_ID)
-    pw_input.clear(); pw_input.send_keys(ECOMM_PW)
+    
+    email_input.clear()
+    email_input.send_keys(ECOMM_ID)
     time.sleep(0.5)
+    pw_input.clear()
+    pw_input.send_keys(ECOMM_PW)
+    time.sleep(0.5)
+    
+    # 💡 자바스크립트 버튼 강제 클릭 대신, 사람이 직접 엔터를 치는 것처럼 폼 전송
+    pw_input.send_keys(Keys.ENTER)
+    print("✅ 로그인 시도 (엔터키 전송)!")
 
-    form = driver.find_element(By.TAG_NAME, "form")
-    login_button = form.find_element(By.XPATH, ".//button[contains(text(), '로그인')]")
-    driver.execute_script("arguments[0].click();", login_button)
-    print("✅ 로그인 시도!")
-
-    time.sleep(2)
+    # 💡 무조건 성공했다고 우기지 말고, 실제 URL이 로그인 페이지를 벗어났는지 철저히 검증!
+    try:
+        WebDriverWait(driver, 10).until(
+            lambda d: "/user/sign_in" not in d.current_url
+        )
+        print(f"✅ 실제 로그인 성공 판정! 변경된 URL: {driver.current_url}")
+    except:
+        raise Exception(f"❌ 로그인 실패! 튕겼거나 막혔습니다. 현재 URL: {driver.current_url}")
+    
+    time.sleep(3)
+    
+    # 중복 세션 팝업 처리
     try:
         session_items = [li for li in driver.find_elements(By.CSS_SELECTOR, "ul > li") if li.is_displayed()]
         if session_items:
@@ -79,21 +105,17 @@ def login_and_handle_session(driver):
             time.sleep(1)
             close_btn = driver.find_element(By.XPATH, "//button[text()='종료 후 접속']")
             if close_btn.is_enabled():
-                driver.execute_script("arguments[0].click();", close_btn)
+                close_btn.click()
                 time.sleep(2)
     except Exception:
         pass
-    # === login_and_handle_session 함수 마지막 부분 ===
-    print(f"✅ 로그인 성공 판정! 현재 URL: {driver.current_url}")
     
-    # 💡 쿠키가 브라우저에 완전히 저장될 수 있도록 여유를 줍니다.
     time.sleep(3)
 
 def crawl_schedule(driver):
-    # 기존과 완벽히 동일 (생략 없이 원본 유지)
+    # 기존 코드 원본 유지
     driver.get(SCHEDULE_URL)
     print("✅ 편성표 홈쇼핑 페이지 이동 완료")
-    # 이동 직후 로그인 상태 안정회 시간 확보
     time.sleep(3)
 
     KST = timezone(timedelta(hours=9))
@@ -142,19 +164,17 @@ def crawl_schedule(driver):
 def execute_logout(driver):
     print("🚪 로그아웃 절차 시작")
     try:
-        # 1. 우측 상단 '쇼핑엔티' 클릭하여 드롭다운 메뉴 열기
         user_menu = WebDriverWait(driver, WAIT).until(
             EC.element_to_be_clickable((By.XPATH, "//b[contains(text(), '쇼핑엔티')]"))
         )
         driver.execute_script("arguments[0].click();", user_menu)
-        time.sleep(1) # 드롭다운 애니메이션 대기
+        time.sleep(1) 
 
-        # 2. '로그아웃' 텍스트를 가진 링크 클릭
         logout_btn = WebDriverWait(driver, WAIT).until(
             EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), '로그아웃')]"))
         )
         driver.execute_script("arguments[0].click();", logout_btn)
-        time.sleep(2) # 로그아웃 완료 대기
+        time.sleep(2) 
         print("✅ 정상적으로 로그아웃 되었습니다.")
     except Exception as e:
         print(f"⚠️ 로그아웃 과정에서 문제가 발생했습니다: {e}")
