@@ -319,10 +319,10 @@ def main():
 
     except Exception as e:
         import traceback
+        import sys # 💡 모듈 추가
         print("❌ 오류 발생:", e)
         print(traceback.format_exc())
         
-        # 💡 [추가] 에러가 났을 때 브라우저 화면을 사진으로 찍어 artifacts 폴더에 저장
         if driver:
             try:
                 screenshot_path = str(ARTIFACT_DIR / "error_screenshot.png")
@@ -330,6 +330,8 @@ def main():
                 print(f"📸 에러 발생 순간의 화면을 {screenshot_path} 에 저장했습니다.")
             except Exception as ss_e:
                 print(f"⚠️ 스크린샷 저장 실패: {ss_e}")
+                
+        sys.exit(1) # 💡 핵심: 깃허브에게 "실패했다"고 멱살 잡고 강제로 알림!
                 
     finally:
         if driver: 
