@@ -71,7 +71,7 @@ def login_and_handle_session(driver):
             raise Exception("로그인 페이지 진입 실패 (타임아웃)")
         time.sleep(0.5)
 
-    time.sleep(2)
+    time.sleep(4)
     email_input = [e for e in driver.find_elements(By.CSS_SELECTOR, "input[name='email']") if e.is_displayed()][0]
     pw_input    = [e for e in driver.find_elements(By.CSS_SELECTOR, "input[name='password']") if e.is_displayed()][0]
     
