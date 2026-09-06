@@ -13,7 +13,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.keys import Keys  # 💡 추가된 모듈 (엔터키 입력용)
+from selenium.webdriver.common.keys import Keys
 
 # ===================== 설정 =====================
 WAIT = 5
@@ -31,7 +31,9 @@ WORKSHEET_NAME = "편성표RAW"
 def make_driver():
     opts = webdriver.ChromeOptions()
     
+    # 💡 깃허브 액션용 필수: 헤드리스 모드 활성화
     opts.add_argument("--headless=new")
+    
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-gpu")
@@ -39,7 +41,6 @@ def make_driver():
     opts.add_argument("--lang=ko-KR")
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     
-    # 💡 봇(Bot) 탐지 우회 옵션 추가 (셀레니움이 사람인 척 위장)
     opts.add_argument("--disable-blink-features=AutomationControlled")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
     opts.add_experimental_option('useAutomationExtension', False)
@@ -62,7 +63,6 @@ def login_and_handle_session(driver):
     login_link = WebDriverWait(driver, WAIT).until(
         EC.element_to_be_clickable((By.LINK_TEXT, "로그인"))
     )
-    # 💡 강제 클릭 대신 일반적인 클릭으로 변경
     login_link.click()
     
     t0 = time.time()
@@ -71,7 +71,7 @@ def login_and_handle_session(driver):
             raise Exception("로그인 페이지 진입 실패 (타임아웃)")
         time.sleep(0.5)
 
-    time.sleep(2) # 입력창 활성화 대기
+    time.sleep(2)
     email_input = [e for e in driver.find_elements(By.CSS_SELECTOR, "input[name='email']") if e.is_displayed()][0]
     pw_input    = [e for e in driver.find_elements(By.CSS_SELECTOR, "input[name='password']") if e.is_displayed()][0]
     
@@ -82,11 +82,9 @@ def login_and_handle_session(driver):
     pw_input.send_keys(ECOMM_PW)
     time.sleep(0.5)
     
-    # 💡 자바스크립트 버튼 강제 클릭 대신, 사람이 직접 엔터를 치는 것처럼 폼 전송
     pw_input.send_keys(Keys.ENTER)
     print("✅ 로그인 시도 (엔터키 전송)!")
 
-    # 💡 무조건 성공했다고 우기지 말고, 실제 URL이 로그인 페이지를 벗어났는지 철저히 검증!
     try:
         WebDriverWait(driver, 10).until(
             lambda d: "/user/sign_in" not in d.current_url
@@ -97,7 +95,6 @@ def login_and_handle_session(driver):
     
     time.sleep(3)
     
-    # 중복 세션 팝업 처리
     try:
         session_items = [li for li in driver.find_elements(By.CSS_SELECTOR, "ul > li") if li.is_displayed()]
         if session_items:
@@ -113,7 +110,6 @@ def login_and_handle_session(driver):
     time.sleep(3)
 
 def crawl_schedule(driver):
-    # 기존 코드 원본 유지
     driver.get(SCHEDULE_URL)
     print("✅ 편성표 홈쇼핑 페이지 이동 완료")
     time.sleep(3)
@@ -160,7 +156,6 @@ def crawl_schedule(driver):
     print(f"총 {len(df)}개 편성표 정보 추출 완료")
     return df
 
-# ===================== 로그아웃 절차 추가 =====================
 def execute_logout(driver):
     print("🚪 로그아웃 절차 시작")
     try:
@@ -179,8 +174,9 @@ def execute_logout(driver):
     except Exception as e:
         print(f"⚠️ 로그아웃 과정에서 문제가 발생했습니다: {e}")
 
-# ===================== Google Sheets 및 전처리 (생략 없이 원본 유지) =====================
+# ===================== Google Sheets 및 전처리 =====================
 def gs_client_from_env():
+    # 💡 깃허브 액션용: 환경변수에서 키값 불러오기
     GSVC_JSON_B64 = os.environ.get("KEY1", "")
     svc_info = json.loads(base64.b64decode(GSVC_JSON_B64).decode("utf-8"))
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
@@ -325,11 +321,21 @@ def main():
         import traceback
         print("❌ 오류 발생:", e)
         print(traceback.format_exc())
+        
+        # 💡 [추가] 에러가 났을 때 브라우저 화면을 사진으로 찍어 artifacts 폴더에 저장
+        if driver:
+            try:
+                screenshot_path = str(ARTIFACT_DIR / "error_screenshot.png")
+                driver.save_screenshot(screenshot_path)
+                print(f"📸 에러 발생 순간의 화면을 {screenshot_path} 에 저장했습니다.")
+            except Exception as ss_e:
+                print(f"⚠️ 스크린샷 저장 실패: {ss_e}")
+                
     finally:
         if driver: 
-            # 💡 브라우저를 닫기 전에 무조건 로그아웃 실행!
             execute_logout(driver)
             driver.quit()
+            print("🛑 브라우저 종료 완료.")
 
 if __name__ == "__main__":
     main()
