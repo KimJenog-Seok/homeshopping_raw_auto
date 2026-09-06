@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, time, re, json, base64
+import os, time, re, json, base64, sys
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -75,15 +75,24 @@ def login_and_handle_session(driver):
     email_input = [e for e in driver.find_elements(By.CSS_SELECTOR, "input[name='email']") if e.is_displayed()][0]
     pw_input    = [e for e in driver.find_elements(By.CSS_SELECTOR, "input[name='password']") if e.is_displayed()][0]
     
+    # 💡 [핵심 수정 1] 이메일 창 물리적 클릭 후 입력!
+    email_input.click()
+    time.sleep(0.5)
     email_input.clear()
     email_input.send_keys(ECOMM_ID)
+    time.sleep(0.5)
+    
+    # 💡 [핵심 수정 2] 비밀번호 창 물리적 클릭 후 입력!
+    pw_input.click()
     time.sleep(0.5)
     pw_input.clear()
     pw_input.send_keys(ECOMM_PW)
     time.sleep(0.5)
     
-    pw_input.send_keys(Keys.ENTER)
-    print("✅ 로그인 시도 (엔터키 전송)!")
+    # 💡 [핵심 수정 3] 엔터키 대신 '로그인' 버튼 물리적 클릭!
+    login_btn = driver.find_element(By.XPATH, "//button[contains(text(), '로그인')]")
+    login_btn.click()
+    print("✅ 로그인 버튼 물리적 클릭 완료!")
 
     try:
         WebDriverWait(driver, 10).until(
@@ -176,7 +185,6 @@ def execute_logout(driver):
 
 # ===================== Google Sheets 및 전처리 =====================
 def gs_client_from_env():
-    # 💡 깃허브 액션용: 환경변수에서 키값 불러오기
     GSVC_JSON_B64 = os.environ.get("KEY1", "")
     svc_info = json.loads(base64.b64decode(GSVC_JSON_B64).decode("utf-8"))
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
@@ -319,10 +327,10 @@ def main():
 
     except Exception as e:
         import traceback
-        import sys # 💡 모듈 추가
         print("❌ 오류 발생:", e)
         print(traceback.format_exc())
         
+        # 💡 에러 스크린샷 
         if driver:
             try:
                 screenshot_path = str(ARTIFACT_DIR / "error_screenshot.png")
@@ -331,8 +339,9 @@ def main():
             except Exception as ss_e:
                 print(f"⚠️ 스크린샷 저장 실패: {ss_e}")
                 
-        sys.exit(1) # 💡 핵심: 깃허브에게 "실패했다"고 멱살 잡고 강제로 알림!
-                
+        # 💡 깃허브에게 강제로 에러를 보고해서 무한루프 방지
+        sys.exit(1)
+        
     finally:
         if driver: 
             execute_logout(driver)
