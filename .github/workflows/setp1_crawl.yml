@@ -38,3 +38,9 @@ jobs:
           command: python step1_crawl.py
         env:
           KEY1: ${{ secrets.KEY1 }}
+      - name: Upload Error Screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshot
+          path: artifacts/error_screenshot.png
