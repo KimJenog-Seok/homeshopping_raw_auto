@@ -456,15 +456,15 @@ html_content = f"""
         }});
         $('#trendTable tbody').html(b);
         
-        Plotly.newPlot('trendChart', traces, {
-            margin: {t:10, b:40, l:40, r:10},
-            legend: {orientation:'h', y:1.2},
-            xaxis: { tickfont: { size: 10 }, fixedrange: true }, // ✅ 가로 줌(확대) 차단
-            yaxis: { fixedrange: true }                          // ✅ 세로 줌(확대) 차단
-        }, {
+        Plotly.newPlot('trendChart', traces, {{
+            margin: {{t:10, b:40, l:40, r:10}},
+            legend: {{orientation:'h', y:1.2}},
+            xaxis: {{ tickfont: {{ size: 10 }}, fixedrange: true }}, // ✅ 괄호 두개씩!
+            yaxis: {{ fixedrange: true }}                            // ✅ 괄호 두개씩!
+        }}, {{
             responsive: true, 
-            displayModeBar: false // ✅ 차트 위쪽에 뜨는 쓸데없는 툴바 숨김
-        });
+            displayModeBar: false 
+        }});
     }}
 
     function renderCompTable() {{
