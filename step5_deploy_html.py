@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 
-print("🚀 [Step 5] 대시보드 v5.2 (중괄호 에러 완벽 수정) 배포 시작!")
+print("🚀 [Step 5] 대시보드 v5.3 (모바일 최적화 및 반응형 적용) 배포 시작!")
 
 TARGET_CATEGORIES = [
     '여성의류', '공용의류', '레포츠의류', '패션잡화', '쥬얼리', '언더웨어',
@@ -125,12 +125,15 @@ weeks = df[['주차_시작일', '주차']].drop_duplicates().sort_values('주차
 default_date = df['방송날짜_str'].max() if not df.empty else datetime.now().strftime('%Y-%m-%d')
 gubun_options = sorted([g for g in df['홈쇼핑구분'].unique().tolist() if g]) if '홈쇼핑구분' in df.columns else ['TC', 'LIVE']
 
+# 👇 여기서부터 html_content 수정 시작! (모바일 뷰포트 및 반응형 적용)
 html_content = f"""
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>홈쇼핑 주간 실적 현황 v5.2</title>
+    <!-- ✅ 모바일 기기 화면에 맞추는 필수 태그 추가 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>홈쇼핑 주간 실적 현황 v5.3</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -139,28 +142,69 @@ html_content = f"""
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <style>
+        /* 기본 스타일 */
         body {{ background-color: #f4f6f8; font-family: 'Pretendard', sans-serif; font-size: 0.9rem; }}
         .header {{ background: #212529; color: white; padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; }}
         .card-box {{ background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }}
-        .section-title {{ font-size: 1.1rem; font-weight: bold; border-left: 5px solid #1a237e; padding-left: 10px; margin-bottom: 15px; color: #212529; }}
-        .section-sub {{ font-size: 0.75rem; color: #888; margin-left: 10px; }}
+        .section-title {{ font-size: 1.1rem; font-weight: bold; border-left: 5px solid #1a237e; padding-left: 10px; margin-bottom: 10px; color: #212529; display: block; }}
+        .section-sub {{ font-size: 0.75rem; color: #888; margin-left: 10px; display: block; margin-bottom: 15px; }}
         th, td {{ vertical-align: middle; text-align: center; border: 1px solid #dee2e6; }}
-        .trend-table {{ table-layout: fixed; width: 100%; }}
-        .trend-table th, .trend-table td {{ font-size: 0.75rem; padding: 4px 2px; }}
+        
+        /* 표 가로 스크롤 및 틀 고정 설정 */
+        .table-responsive {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+        .trend-table {{ table-layout: fixed; min-width: 800px; }} /* 모바일에서 표 너비 유지하여 스크롤 유도 */
+        .trend-table th, .trend-table td {{ font-size: 0.75rem; padding: 6px 4px; }}
+        
+        /* ✅ 트렌드 표: 1열(회사명) 틀 고정 */
+        .trend-table th:first-child, .trend-table td:first-child {{ position: sticky; left: 0; z-index: 2; border-right: 2px solid #ccc; }}
+        .trend-table th:first-child {{ background-color: #f8f9fa; }}
+        .trend-table td:first-child {{ background-color: white; }}
         .trend-table th {{ background-color: #f8f9fa; }}
+
+        .comp-table {{ min-width: 600px; }}
         .comp-table td {{ padding: 8px 4px; font-size: 0.85rem; }}
+        
+        /* ✅ 비교 분석 표: 1열(카테고리) 틀 고정 */
+        .comp-table th:first-child, .comp-table td:first-child {{ position: sticky; left: 0; z-index: 2; border-right: 2px solid #ccc; }}
+        .comp-table th:first-child {{ background-color: #212529; color: white; }}
+        .comp-table td:first-child {{ background-color: white; }}
+        
+        /* 합계, 소계 행 스타일 및 1열 배경색 맞춤 */
         .row-subtotal td {{ background-color: #e3f2fd; font-weight: bold; }}
+        .comp-table .row-subtotal td:first-child {{ background-color: #e3f2fd; }}
         .row-grandtotal td {{ background-color: #212529; color: white; font-weight: bold; }}
+        .comp-table .row-grandtotal td:first-child {{ background-color: #212529; color: white; }}
+
         .text-win {{ color: #0d6efd; font-weight: bold; }}
         .text-lose {{ color: #dc3545; font-weight: bold; }}
-        .diff-val {{ font-size: 0.75rem; color: #666; font-weight: normal; margin-left: 2px; }}
+        .diff-val {{ font-size: 0.7rem; color: #666; font-weight: normal; margin-left: 2px; }}
         .dataTables_length, .dataTables_filter {{ display: none !important; }}
-        .text-truncate-custom {{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 450px; display: block; }}
+        .text-truncate-custom {{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 450px; display: inline-block; vertical-align: middle; }}
         .total-row td {{ background-color: #495057 !important; color: white !important; font-weight: bold; }}
         #scheduleCompMenu .dropdown-item {{ cursor: pointer; }}
         #scheduleCompMenu label {{ cursor: pointer; width: 100%; }}
         #scheduleCompBtn {{ text-align: left; }}
         #loadingOverlay {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; }}
+
+        /* ✅ 모바일 기기(너비 768px 이하) 전용 반응형 CSS */
+        @media (max-width: 768px) {{
+            .header {{ flex-direction: column; padding: 10px 15px; text-align: center; gap: 5px; }}
+            .card-box {{ padding: 15px 10px; }}
+            .section-title {{ font-size: 1rem; border-left: 4px solid #1a237e; }}
+            .section-sub {{ margin-left: 0; margin-top: 5px; }}
+            
+            /* 긴 텍스트 잘림 길이를 모바일에 맞게 축소 */
+            .text-truncate-custom {{ max-width: 140px; }}
+            
+            /* 컨트롤 영역(버튼, 날짜선택) 세로 정렬 */
+            .controls-wrapper {{ flex-direction: column !important; align-items: stretch !important; gap: 8px !important; margin-top: 10px; width: 100%; }}
+            .controls-wrapper .btn-group, 
+            .controls-wrapper select, 
+            .controls-wrapper input,
+            .controls-wrapper .input-group,
+            .controls-wrapper button,
+            .controls-wrapper .dropdown {{ width: 100% !important; max-width: none !important; }}
+        }}
     </style>
 </head>
 <body>
@@ -171,18 +215,20 @@ html_content = f"""
 
 <div class="header">
     <h4 class="m-0 fw-bold">홈쇼핑 주간 실적 현황</h4>
-    <span class="badge bg-primary">v5.2 정렬/검색 수정</span>
+    <span class="badge bg-primary">v5.3 모바일 반응형</span>
 </div>
-<div class="container-fluid mt-3 px-3" id="mainContent" style="display:none;">
+<div class="container-fluid mt-3 px-2 px-md-3" id="mainContent" style="display:none;">
     
+    <!-- 1. 주간 실적 트렌드 -->
     <div class="card-box">
-        <div class="d-flex justify-content-between align-items-center mb-3">
+        <!-- d-flex flex-column flex-md-row 로 묶어서 PC/모바일 분기 -->
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3">
             <div>
                 <span class="section-title m-0">주간 실적 트렌드 (최근 12주)</span>
                 <span class="section-sub">※ 주문액은 실제 방송일수 기준 일평균, 주문효율은 총주문액÷총가치시간</span>
             </div>
-            <div class="d-flex gap-2">
-                <div class="btn-group btn-group-sm">
+            <div class="d-flex flex-row controls-wrapper">
+                <div class="btn-group btn-group-sm w-100">
                     <input type="radio" class="btn-check" name="trendMode" id="trendSales" value="sales" onchange="renderTrendSection()">
                     <label class="btn btn-outline-dark" for="trendSales">일평균 주문액</label>
                     <input type="radio" class="btn-check" name="trendMode" id="trendEff" value="eff" checked onchange="renderTrendSection()">
@@ -200,25 +246,28 @@ html_content = f"""
         <div id="trendChart" style="height: 300px; width: 100%;"></div>
     </div>
 
+    <!-- 2. 당사 vs 경쟁사 비교 분석 -->
     <div class="card-box">
-        <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3">
             <div>
                 <span class="section-title m-0">당사 vs 경쟁사 비교 분석</span>
                 <span class="section-sub">※ 주문금액은 실제 방송일수 기준 일평균</span>
             </div>
-            <div class="d-flex gap-2">
-                <div class="btn-group btn-group-sm">
+            <div class="d-flex flex-row controls-wrapper">
+                <div class="btn-group btn-group-sm w-100 flex-wrap">
                     <input type="radio" class="btn-check" name="viewMode" id="modeSales" value="sales" onchange="renderCompTable()">
-                    <label class="btn btn-outline-primary" for="modeSales">일평균 주문금액</label>
+                    <label class="btn btn-outline-primary w-50" for="modeSales">일평균 주문금액</label>
                     <input type="radio" class="btn-check" name="viewMode" id="modePerf" value="perf" checked onchange="renderCompTable()">
-                    <label class="btn btn-outline-primary" for="modePerf">주문효율</label>
+                    <label class="btn btn-outline-primary w-50" for="modePerf">주문효율</label>
                     <input type="radio" class="btn-check" name="viewMode" id="modeShare" value="share" onchange="renderCompTable()">
-                    <label class="btn btn-outline-primary" for="modeShare">편성비중</label>
+                    <label class="btn btn-outline-primary w-50" for="modeShare">편성비중</label>
                     <input type="radio" class="btn-check" name="viewMode" id="modeCompEff" value="compEff" onchange="renderCompTable()">
-                    <label class="btn btn-outline-danger" for="modeCompEff">타사대비효율</label>
+                    <label class="btn btn-outline-danger w-50" for="modeCompEff">타사대비효율</label>
                 </div>
-                <select id="weekSelect" class="form-select form-select-sm" style="width: 180px;" onchange="renderCompTable()"></select>
-                <select id="extraComp" class="form-select form-select-sm" style="width: 150px;" onchange="renderCompTable()"><option value="">+ 타사 선택</option></select>
+                <div class="d-flex flex-row w-100 gap-2">
+                    <select id="weekSelect" class="form-select form-select-sm w-50" onchange="renderCompTable()"></select>
+                    <select id="extraComp" class="form-select form-select-sm w-50" onchange="renderCompTable()"><option value="">+ 타사 선택</option></select>
+                </div>
             </div>
         </div>
         <div class="table-responsive">
@@ -238,10 +287,11 @@ html_content = f"""
         </div>
     </div>
 
+    <!-- 3. 일자별 상세 편성표 -->
     <div class="card-box">
-        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div class="d-flex flex-column justify-content-between mb-3 gap-2">
             <div class="section-title m-0">📅 일자별 상세 편성표</div>
-            <div class="d-flex gap-2 align-items-center flex-wrap">
+            <div class="d-flex flex-row flex-wrap align-items-center gap-2 controls-wrapper">
                 <div class="input-group input-group-sm" style="width: auto;">
                     <span class="input-group-text">기간</span>
                     <input type="date" id="startDate" class="form-control" value="{default_date}">
@@ -266,12 +316,14 @@ html_content = f"""
                 </select>
                 <select id="scheduleCat" class="form-select form-select-sm" style="width:120px;"><option value="all">전체 카테고리</option></select>
                 <input type="text" id="prodSearch" class="form-control form-control-sm" placeholder="상품명 검색..." style="width:150px;">
-                <button class="btn btn-dark btn-sm px-3" onclick="renderSchedule()">조회</button>
-                <button class="btn btn-success btn-sm px-3 ms-2" onclick="exportCSV()">Excel 다운로드</button>
+                <div class="d-flex gap-2 w-100">
+                    <button class="btn btn-dark btn-sm w-50" onclick="renderSchedule()">조회</button>
+                    <button class="btn btn-success btn-sm w-50" onclick="exportCSV()">Excel 다운로드</button>
+                </div>
             </div>
         </div>
         <div class="table-responsive">
-            <table id="scheduleTable" class="table table-striped table-hover table-bordered" style="width:100%">
+            <table id="scheduleTable" class="table table-striped table-hover table-bordered" style="width:100%; min-width:800px;">
                 <thead class="table-dark">
                     <tr><th>날짜</th><th>시간</th><th>상품명</th><th>카테고리</th><th>판매량</th><th>회사</th><th>구분</th><th>주문금액</th><th>효율</th></tr>
                     <tr class="total-row">
@@ -630,4 +682,4 @@ if items:
 else:
     print("❌ 드라이브에 index.html 파일이 없습니다.")
 
-print("🎉 [Step 5] 대시보드 v5.2 완벽 배포 종료!")
+print("🎉 [Step 5] 대시보드 v5.3 완벽 배포 종료!")
