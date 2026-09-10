@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 
-print("🚀 [Step 5] 대시보드 v5.3 (모바일 최적화 및 반응형 적용) 배포 시작!")
+print("🚀 [Step 5] 대시보드 v5.4 (시간대 필터 추가 및 모바일 최적화) 배포 시작!")
 
 TARGET_CATEGORIES = [
     '여성의류', '공용의류', '레포츠의류', '패션잡화', '쥬얼리', '언더웨어',
@@ -82,12 +82,13 @@ df['카테고리'] = df[col_cat].fillna('기타').astype(str).str.strip()
 df['가치시간'] = pd.to_numeric(df[col_time], errors='coerce').fillna(0) if col_time and col_time in df.columns else 0
 df = df[df['카테고리'].isin(TARGET_CATEGORIES)]
 
-rename_map = {'방송시작시간': '방송시작시간', '방송정보': '상품명', '판매량': '판매량', '회사명': '회사명', '홈쇼핑구분': '홈쇼핑구분', '매출액 환산수식': '주문금액', '주문효율 /h': '주문효율'}
+# 💡 '시간대(방송시작시간기준)' 열을 '시간대'로 매핑 추가
+rename_map = {'방송시작시간': '방송시작시간', '방송정보': '상품명', '판매량': '판매량', '회사명': '회사명', '홈쇼핑구분': '홈쇼핑구분', '매출액 환산수식': '주문금액', '주문효율 /h': '주문효율', '시간대(방송시작시간기준)': '시간대'}
 for k, v in rename_map.items():
     if k in df.columns:
         df = df.rename(columns={k: v})
     elif v not in df.columns:
-        df[v] = 0
+        df[v] = 0 if v != '시간대' else '미상'
 
 # 💡 24시간제 강제 변환 로직
 def parse_time_str(val):
@@ -104,11 +105,13 @@ def parse_time_str(val):
 if '방송시작시간' in df.columns:
     df['방송시작시간'] = df['방송시작시간'].apply(parse_time_str)
 
-final_cols = ['방송날짜_str', '주차', '주차_시작일', '방송시작시간', '상품명', '카테고리', '판매량', '회사명', '홈쇼핑구분', '주문금액', '가치시간', '주문효율']
+# 💡 final_cols에 '시간대' 추가
+final_cols = ['방송날짜_str', '주차', '주차_시작일', '방송시작시간', '시간대', '상품명', '카테고리', '판매량', '회사명', '홈쇼핑구분', '주문금액', '가치시간', '주문효율']
 numeric_cols = ['판매량', '주문금액', '가치시간', '주문효율']
 for col in numeric_cols:
     if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 if '홈쇼핑구분' in df.columns: df['홈쇼핑구분'] = df['홈쇼핑구분'].fillna('').astype(str)
+if '시간대' in df.columns: df['시간대'] = df['시간대'].fillna('미상').astype(str)
 
 df = df[[c for c in final_cols if c in df.columns]]
 
@@ -125,15 +128,17 @@ weeks = df[['주차_시작일', '주차']].drop_duplicates().sort_values('주차
 default_date = df['방송날짜_str'].max() if not df.empty else datetime.now().strftime('%Y-%m-%d')
 gubun_options = sorted([g for g in df['홈쇼핑구분'].unique().tolist() if g]) if '홈쇼핑구분' in df.columns else ['TC', 'LIVE']
 
-# 👇 여기서부터 html_content 수정 시작! (모바일 뷰포트 및 반응형 적용)
+# 💡 '시간대' 옵션 리스트 추출 (고유값)
+time_options = sorted([t for t in df['시간대'].unique().tolist() if t and t != '미상' and t != '0']) if '시간대' in df.columns else []
+
+# 👇 html_content 수정 시작
 html_content = f"""
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <!-- ✅ 모바일 기기 화면에 맞추는 필수 태그 추가 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>홈쇼핑 주간 실적 현황 v5.3</title>
+    <title>홈쇼핑 주간 실적 현황 v5.4</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -152,10 +157,9 @@ html_content = f"""
         
         /* 표 가로 스크롤 및 틀 고정 설정 */
         .table-responsive {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
-        .trend-table {{ table-layout: fixed; min-width: 800px; }} /* 모바일에서 표 너비 유지하여 스크롤 유도 */
+        .trend-table {{ table-layout: fixed; min-width: 800px; }} 
         .trend-table th, .trend-table td {{ font-size: 0.75rem; padding: 6px 4px; }}
         
-        /* ✅ 트렌드 표: 1열(회사명) 틀 고정 */
         .trend-table th:first-child, .trend-table td:first-child {{ position: sticky; left: 0; z-index: 2; border-right: 2px solid #ccc; }}
         .trend-table th:first-child {{ background-color: #f8f9fa; }}
         .trend-table td:first-child {{ background-color: white; }}
@@ -164,12 +168,10 @@ html_content = f"""
         .comp-table {{ min-width: 600px; }}
         .comp-table td {{ padding: 8px 4px; font-size: 0.85rem; }}
         
-        /* ✅ 비교 분석 표: 1열(카테고리) 틀 고정 */
         .comp-table th:first-child, .comp-table td:first-child {{ position: sticky; left: 0; z-index: 2; border-right: 2px solid #ccc; }}
         .comp-table th:first-child {{ background-color: #212529; color: white; }}
         .comp-table td:first-child {{ background-color: white; }}
         
-        /* 합계, 소계 행 스타일 및 1열 배경색 맞춤 */
         .row-subtotal td {{ background-color: #e3f2fd; font-weight: bold; }}
         .comp-table .row-subtotal td:first-child {{ background-color: #e3f2fd; }}
         .row-grandtotal td {{ background-color: #212529; color: white; font-weight: bold; }}
@@ -186,17 +188,14 @@ html_content = f"""
         #scheduleCompBtn {{ text-align: left; }}
         #loadingOverlay {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; }}
 
-        /* ✅ 모바일 기기(너비 768px 이하) 전용 반응형 CSS */
         @media (max-width: 768px) {{
             .header {{ flex-direction: column; padding: 10px 15px; text-align: center; gap: 5px; }}
             .card-box {{ padding: 15px 10px; }}
             .section-title {{ font-size: 1rem; border-left: 4px solid #1a237e; }}
             .section-sub {{ margin-left: 0; margin-top: 5px; }}
             
-            /* 긴 텍스트 잘림 길이를 모바일에 맞게 축소 */
             .text-truncate-custom {{ max-width: 140px; }}
             
-            /* 컨트롤 영역(버튼, 날짜선택) 세로 정렬 */
             .controls-wrapper {{ flex-direction: column !important; align-items: stretch !important; gap: 8px !important; margin-top: 10px; width: 100%; }}
             .controls-wrapper .btn-group, 
             .controls-wrapper select, 
@@ -215,13 +214,11 @@ html_content = f"""
 
 <div class="header">
     <h4 class="m-0 fw-bold">홈쇼핑 주간 실적 현황</h4>
-    <span class="badge bg-primary">v5.3 모바일 반응형</span>
+    <span class="badge bg-primary">v5.4 모바일 반응형 & 시간대 필터</span>
 </div>
 <div class="container-fluid mt-3 px-2 px-md-3" id="mainContent" style="display:none;">
     
-    <!-- 1. 주간 실적 트렌드 -->
     <div class="card-box">
-        <!-- d-flex flex-column flex-md-row 로 묶어서 PC/모바일 분기 -->
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3">
             <div>
                 <span class="section-title m-0">주간 실적 트렌드 (최근 12주)</span>
@@ -246,7 +243,6 @@ html_content = f"""
         <div id="trendChart" style="height: 300px; width: 100%;"></div>
     </div>
 
-    <!-- 2. 당사 vs 경쟁사 비교 분석 -->
     <div class="card-box">
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3">
             <div>
@@ -287,7 +283,6 @@ html_content = f"""
         </div>
     </div>
 
-    <!-- 3. 일자별 상세 편성표 -->
     <div class="card-box">
         <div class="d-flex flex-column justify-content-between mb-3 gap-2">
             <div class="section-title m-0">📅 일자별 상세 편성표</div>
@@ -298,6 +293,11 @@ html_content = f"""
                     <span class="input-group-text">~</span>
                     <input type="date" id="endDate" class="form-control" value="{default_date}">
                 </div>
+                
+                <select id="scheduleTime" class="form-select form-select-sm" style="width:110px;">
+                    <option value="전체">시간대:전체</option>
+                </select>
+
                 <div class="dropdown" style="width:170px;">
                     <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-truncate" type="button" id="scheduleCompBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
                         회사 선택
@@ -352,6 +352,9 @@ html_content = f"""
     const grpIntangible = {json.dumps(GROUP_INTANGIBLE, ensure_ascii=False)};
     const compList = {json.dumps(sorted_comps, ensure_ascii=False)};
     const gubunOptions = {json.dumps(gubun_options, ensure_ascii=False)};
+    
+    // 💡 Python에서 넘겨받은 시간대 옵션
+    const timeOptions = {json.dumps(time_options, ensure_ascii=False)};
 
     $(document).ready(function() {{
         weekMap.forEach(w => {{
@@ -379,6 +382,9 @@ html_content = f"""
 
         gubunOptions.forEach(g => $('#scheduleGubun').append(new Option(g, g)));
         catOrder.forEach(c => $('#scheduleCat').append(new Option(c, c)));
+        
+        // 💡 시간대 옵션 추가
+        timeOptions.forEach(t => $('#scheduleTime').append(new Option(t, t)));
         
         $('#loadingOverlay').fadeOut('fast', function() {{
             $('#mainContent').fadeIn('fast', function() {{
@@ -459,8 +465,8 @@ html_content = f"""
         Plotly.newPlot('trendChart', traces, {{
             margin: {{t:10, b:40, l:40, r:10}},
             legend: {{orientation:'h', y:1.2}},
-            xaxis: {{ tickfont: {{ size: 10 }}, fixedrange: true }}, // ✅ 괄호 두개씩!
-            yaxis: {{ fixedrange: true }}                            // ✅ 괄호 두개씩!
+            xaxis: {{ tickfont: {{ size: 10 }}, fixedrange: true }},
+            yaxis: {{ fixedrange: true }}                            
         }}, {{
             responsive: true, 
             displayModeBar: false 
@@ -581,7 +587,10 @@ html_content = f"""
         const start = $('#startDate').val(), end = $('#endDate').val();
         const selectedComps = getSelectedSchedComps();
         const gubun = $('#scheduleGubun').val();
-        const cat = $('#scheduleCat').val(), searchTxt = $('#prodSearch').val().trim().toLowerCase();
+        const cat = $('#scheduleCat').val();
+        const timeSlot = $('#scheduleTime').val(); // 💡 시간대 값 가져오기
+        const searchTxt = $('#prodSearch').val().trim().toLowerCase();
+        
         if ($.fn.DataTable.isDataTable('#scheduleTable')) $('#scheduleTable').DataTable().destroy();
         
         const filtered = rawData.filter(d => {{
@@ -589,6 +598,7 @@ html_content = f"""
                 && (selectedComps.length===0 || selectedComps.includes(d['회사명']))
                 && (gubun==='전체' || d['홈쇼핑구분']===gubun)
                 && (cat==='all'||d['카테고리']===cat)
+                && (timeSlot==='전체' || d['시간대']===timeSlot) // 💡 시간대 필터 적용
                 && (searchTxt===''||d['상품명'].toLowerCase().includes(searchTxt));
         }});
 
@@ -686,4 +696,4 @@ if items:
 else:
     print("❌ 드라이브에 index.html 파일이 없습니다.")
 
-print("🎉 [Step 5] 대시보드 v5.3 완벽 배포 종료!")
+print("🎉 [Step 5] 대시보드 v5.4 완벽 배포 종료!")
