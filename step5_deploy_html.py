@@ -154,6 +154,15 @@ html_content = f"""
         .section-title {{ font-size: 1.1rem; font-weight: bold; border-left: 5px solid #1a237e; padding-left: 10px; margin-bottom: 10px; color: #212529; display: block; }}
         .section-sub {{ font-size: 0.75rem; color: #888; margin-left: 10px; display: block; margin-bottom: 15px; }}
         th, td {{ vertical-align: middle; text-align: center; border: 1px solid #dee2e6; }}
+
+        /* ✅ 당사 vs 경쟁사 비교 분석 2x2 버튼 테두리 라운딩 교정 */
+        .btn-group.flex-wrap > label.btn {
+            border-radius: 0 !important; /* 기본 둥근 모서리 강제 초기화 */
+        }
+        .btn-group.flex-wrap > label.btn:nth-of-type(1) { border-top-left-radius: 6px !important; }
+        .btn-group.flex-wrap > label.btn:nth-of-type(2) { border-top-right-radius: 6px !important; }
+        .btn-group.flex-wrap > label.btn:nth-of-type(3) { border-bottom-left-radius: 6px !important; margin-top: -1px; }
+        .btn-group.flex-wrap > label.btn:nth-of-type(4) { border-bottom-right-radius: 6px !important; margin-top: -1px; }
         
         /* 표 가로 스크롤 및 틀 고정 설정 */
         .table-responsive {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
