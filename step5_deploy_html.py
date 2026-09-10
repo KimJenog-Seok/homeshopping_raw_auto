@@ -159,10 +159,10 @@ html_content = f"""
         .btn-group.flex-wrap > label.btn {
             border-radius: 0 !important; /* 기본 둥근 모서리 강제 초기화 */
         }
-        .btn-group.flex-wrap > label.btn:nth-of-type(1) { border-top-left-radius: 6px !important; }
-        .btn-group.flex-wrap > label.btn:nth-of-type(2) { border-top-right-radius: 6px !important; }
-        .btn-group.flex-wrap > label.btn:nth-of-type(3) { border-bottom-left-radius: 6px !important; margin-top: -1px; }
-        .btn-group.flex-wrap > label.btn:nth-of-type(4) { border-bottom-right-radius: 6px !important; margin-top: -1px; }
+        .btn-group.flex-wrap > label.btn:nth-of-type(1) {{ border-top-left-radius: 6px !important; }}
+        .btn-group.flex-wrap > label.btn:nth-of-type(2) {{ border-top-right-radius: 6px !important; }}
+        .btn-group.flex-wrap > label.btn:nth-of-type(3) {{ border-bottom-left-radius: 6px !important; margin-top: -1px; }}
+        .btn-group.flex-wrap > label.btn:nth-of-type(4) {{ border-bottom-right-radius: 6px !important; margin-top: -1px; }}
         
         /* 표 가로 스크롤 및 틀 고정 설정 */
         .table-responsive {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
