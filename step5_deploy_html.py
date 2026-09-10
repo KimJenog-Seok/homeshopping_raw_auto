@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
 
-print("🚀 [Step 5] 대시보드 v5.4 (시간대 필터 추가 및 모바일 최적화) 배포 시작!")
+print("🚀 [Step 5] 대시보드 v5.4 (시간대 필터, 모바일 최적화 및 UI 교정) 배포 시작!")
 
 TARGET_CATEGORIES = [
     '여성의류', '공용의류', '레포츠의류', '패션잡화', '쥬얼리', '언더웨어',
@@ -131,7 +131,6 @@ gubun_options = sorted([g for g in df['홈쇼핑구분'].unique().tolist() if g]
 # 💡 '시간대' 옵션 리스트 추출 (숫자 크기 기준으로 정렬)
 time_options = sorted([t for t in df['시간대'].unique().tolist() if t and t != '미상' and t != '0'], key=lambda x: int(x) if str(x).isdigit() else 999) if '시간대' in df.columns else []
 
-# 👇 html_content 수정 시작
 html_content = f"""
 <!DOCTYPE html>
 <html lang="ko">
@@ -147,24 +146,13 @@ html_content = f"""
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <style>
-        /* 기본 스타일 */
         body {{ background-color: #f4f6f8; font-family: 'Pretendard', sans-serif; font-size: 0.9rem; }}
         .header {{ background: #212529; color: white; padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; }}
         .card-box {{ background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }}
         .section-title {{ font-size: 1.1rem; font-weight: bold; border-left: 5px solid #1a237e; padding-left: 10px; margin-bottom: 10px; color: #212529; display: block; }}
         .section-sub {{ font-size: 0.75rem; color: #888; margin-left: 10px; display: block; margin-bottom: 15px; }}
         th, td {{ vertical-align: middle; text-align: center; border: 1px solid #dee2e6; }}
-
-        /* ✅ 당사 vs 경쟁사 비교 분석 2x2 버튼 테두리 라운딩 교정 */
-        .btn-group.flex-wrap > label.btn {
-            border-radius: 0 !important; /* 기본 둥근 모서리 강제 초기화 */
-        }
-        .btn-group.flex-wrap > label.btn:nth-of-type(1) {{ border-top-left-radius: 6px !important; }}
-        .btn-group.flex-wrap > label.btn:nth-of-type(2) {{ border-top-right-radius: 6px !important; }}
-        .btn-group.flex-wrap > label.btn:nth-of-type(3) {{ border-bottom-left-radius: 6px !important; margin-top: -1px; }}
-        .btn-group.flex-wrap > label.btn:nth-of-type(4) {{ border-bottom-right-radius: 6px !important; margin-top: -1px; }}
         
-        /* 표 가로 스크롤 및 틀 고정 설정 */
         .table-responsive {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
         .trend-table {{ table-layout: fixed; min-width: 800px; }} 
         .trend-table th, .trend-table td {{ font-size: 0.75rem; padding: 6px 4px; }}
@@ -213,6 +201,15 @@ html_content = f"""
             .controls-wrapper button,
             .controls-wrapper .dropdown {{ width: 100% !important; max-width: none !important; }}
         }}
+
+        /* ✅ 당사 vs 경쟁사 비교 분석 2x2 버튼 테두리 라운딩 교정 (에러 해결) */
+        .btn-group.flex-wrap > label.btn {{
+            border-radius: 0 !important;
+        }}
+        .btn-group.flex-wrap > label.btn:nth-of-type(1) {{ border-top-left-radius: 6px !important; }}
+        .btn-group.flex-wrap > label.btn:nth-of-type(2) {{ border-top-right-radius: 6px !important; }}
+        .btn-group.flex-wrap > label.btn:nth-of-type(3) {{ border-bottom-left-radius: 6px !important; margin-top: -1px; }}
+        .btn-group.flex-wrap > label.btn:nth-of-type(4) {{ border-bottom-right-radius: 6px !important; margin-top: -1px; }}
     </style>
 </head>
 <body>
@@ -223,10 +220,11 @@ html_content = f"""
 
 <div class="header">
     <h4 class="m-0 fw-bold">홈쇼핑 주간 실적 현황</h4>
-    <span class="badge bg-primary">v5.4 모바일 반응형 & 시간대 필터</span>
+    <span class="badge bg-primary">v5.4 모바일 & 시간대 필터</span>
 </div>
 <div class="container-fluid mt-3 px-2 px-md-3" id="mainContent" style="display:none;">
     
+    <!-- 1. 주간 실적 트렌드 -->
     <div class="card-box">
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3">
             <div>
@@ -252,6 +250,7 @@ html_content = f"""
         <div id="trendChart" style="height: 300px; width: 100%;"></div>
     </div>
 
+    <!-- 2. 당사 vs 경쟁사 비교 분석 -->
     <div class="card-box">
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3">
             <div>
@@ -292,6 +291,7 @@ html_content = f"""
         </div>
     </div>
 
+    <!-- 3. 일자별 상세 편성표 -->
     <div class="card-box">
         <div class="d-flex flex-column justify-content-between mb-3 gap-2">
             <div class="section-title m-0">📅 일자별 상세 편성표</div>
@@ -362,7 +362,6 @@ html_content = f"""
     const compList = {json.dumps(sorted_comps, ensure_ascii=False)};
     const gubunOptions = {json.dumps(gubun_options, ensure_ascii=False)};
     
-    // 💡 Python에서 넘겨받은 시간대 옵션
     const timeOptions = {json.dumps(time_options, ensure_ascii=False)};
 
     $(document).ready(function() {{
@@ -391,8 +390,6 @@ html_content = f"""
 
         gubunOptions.forEach(g => $('#scheduleGubun').append(new Option(g, g)));
         catOrder.forEach(c => $('#scheduleCat').append(new Option(c, c)));
-        
-        // 💡 시간대 옵션 추가
         timeOptions.forEach(t => $('#scheduleTime').append(new Option(t, t)));
         
         $('#loadingOverlay').fadeOut('fast', function() {{
@@ -597,7 +594,7 @@ html_content = f"""
         const selectedComps = getSelectedSchedComps();
         const gubun = $('#scheduleGubun').val();
         const cat = $('#scheduleCat').val();
-        const timeSlot = $('#scheduleTime').val(); // 💡 시간대 값 가져오기
+        const timeSlot = $('#scheduleTime').val(); 
         const searchTxt = $('#prodSearch').val().trim().toLowerCase();
         
         if ($.fn.DataTable.isDataTable('#scheduleTable')) $('#scheduleTable').DataTable().destroy();
@@ -607,7 +604,7 @@ html_content = f"""
                 && (selectedComps.length===0 || selectedComps.includes(d['회사명']))
                 && (gubun==='전체' || d['홈쇼핑구분']===gubun)
                 && (cat==='all'||d['카테고리']===cat)
-                && (timeSlot==='전체' || d['시간대']===timeSlot) // 💡 시간대 필터 적용
+                && (timeSlot==='전체' || d['시간대']===timeSlot)
                 && (searchTxt===''||d['상품명'].toLowerCase().includes(searchTxt));
         }});
 
