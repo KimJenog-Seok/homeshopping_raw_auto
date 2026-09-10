@@ -128,8 +128,8 @@ weeks = df[['주차_시작일', '주차']].drop_duplicates().sort_values('주차
 default_date = df['방송날짜_str'].max() if not df.empty else datetime.now().strftime('%Y-%m-%d')
 gubun_options = sorted([g for g in df['홈쇼핑구분'].unique().tolist() if g]) if '홈쇼핑구분' in df.columns else ['TC', 'LIVE']
 
-# 💡 '시간대' 옵션 리스트 추출 (고유값)
-time_options = sorted([t for t in df['시간대'].unique().tolist() if t and t != '미상' and t != '0']) if '시간대' in df.columns else []
+# 💡 '시간대' 옵션 리스트 추출 (숫자 크기 기준으로 정렬)
+time_options = sorted([t for t in df['시간대'].unique().tolist() if t and t != '미상' and t != '0'], key=lambda x: int(x) if str(x).isdigit() else 999) if '시간대' in df.columns else []
 
 # 👇 html_content 수정 시작
 html_content = f"""
