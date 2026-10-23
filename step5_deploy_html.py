@@ -265,7 +265,7 @@ html_content = f"""
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3">
             <div>
                 <span class="section-title m-0">당사 vs 경쟁사 비교 분석</span>
-                <span class="section-sub">※ 주문금액은 실제 방송일수 기준 일평균</span>
+                <span class="section-sub">※ 주문금액은 실제 방송일수 기준 일평균, ()는 전주대비 증감, 주문금액, 주문효율 백만단위</span>
             </div>
             <div class="d-flex flex-row controls-wrapper">
                 <div class="btn-group btn-group-sm w-100 flex-wrap">
