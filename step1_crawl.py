@@ -230,16 +230,16 @@ def _to_int_kor(s):
     return total
 
 def preprocess_dataframe(df_raw, sh):
-    print("🧮 데이터 전처리 시작")
+    print("🧮 데이터 전처리 시작 (분 단위 시간 분할합산 및 58:42 가중치 적용)")
     df = df_raw.copy()
+    
+    # 1. 날짜 및 시간 기본 파싱
     split_result = df["방송시간"].str.split("\n", n=1, expand=True)
-
     def clean_date_str(val):
         match = re.search(r'(\d{2}\.\d{1,2}\.\d{1,2})', str(val))
         return match.group(1) if match else val
 
-    cleaned_date = split_result[0].apply(clean_date_str)
-    df["방송날짜"] = pd.to_datetime(cleaned_date, format="%y.%m.%d", errors="coerce").dt.strftime("%Y-%m-%d")
+    df["방송날짜"] = pd.to_datetime(split_result[0].apply(clean_date_str), format="%y.%m.%d", errors="coerce").dt.strftime("%Y-%m-%d")
     df["방송시작시간"] = split_result[1].str.strip() if len(split_result.columns) == 2 else ""
     
     try: day = pd.to_datetime(df["방송날짜"].iloc[0]).date()
@@ -247,28 +247,28 @@ def preprocess_dataframe(df_raw, sh):
         KST = timezone(timedelta(hours=9))
         day = datetime.now(KST).date() - timedelta(days=1)
 
+    # 2. 회사명 및 홈쇼핑 구분 분리
     df["상품명"], df["회사명"], df["홈쇼핑구분"] = zip(*df["방송정보"].astype(str).apply(split_company_from_broadcast))
     df["매출액 환산수식"] = df["매출액"].apply(_to_int_kor)
 
+    # 3. 기준가치 시트 로드
     try:
-        ref_df = pd.DataFrame(sh.worksheet("기준가치").get_all_values()[1:], columns=[c.strip() for c in sh.worksheet("기준가치").get_all_values()[0]])
+        ref_raw = sh.worksheet("기준가치").get_all_values()
+        ref_df = pd.DataFrame(ref_raw[1:], columns=[c.strip() for c in ref_raw[0]])
         if "기준시간" not in ref_df.columns:
             for c in ref_df.columns:
-                if c.replace(" ", "") == "기준시간": ref_df.rename(columns={c: "기준시간"}, inplace=True); break
-        df["일자"] = pd.to_datetime(df["방송날짜"]).dt.day.astype(str) + "일"
-        df["시간대"] = pd.to_datetime(df["방송시작시간"], format="%H:%M", errors="coerce").dt.hour.astype(str)
-        def lookup_value(row):
-            try:
-                val = ref_df.loc[ref_df["기준시간"] == row["시간대"], row["일자"]].values
-                if len(val) > 0 and str(val[0]).strip() != "": return float(str(val[0]).replace(",", ""))
-            except: pass
-            return 0.0
-        df["_시간당_환산가치"] = df.apply(lookup_value, axis=1)
-        print("✅ 기준가치 매핑 완료")
+                if c.replace(" ", "") == "기준시간": 
+                    ref_df.rename(columns={c: "기준시간"}, inplace=True)
+                    break
+        ref_df["기준시간"] = pd.to_numeric(ref_df["기준시간"], errors='coerce')
     except Exception as e:
-        print(f"⚠️ 기준가치 시트 없음/오류: {e}")
-        df["_시간당_환산가치"], df["일자"], df["시간대"] = 0.0, "", ""
+        print(f"⚠️ 기준가치 시트 로드 오류: {e}")
+        ref_df = pd.DataFrame()
 
+    df["일자"] = pd.to_datetime(df["방송날짜"]).dt.day.astype(str) + "일"
+    df["시간대"] = pd.to_datetime(df["방송시작시간"], format="%H:%M", errors="coerce").dt.hour.astype(str)
+
+    # 4. 방송 시작 및 종료 시간 계산
     def to_dt(hhmm):
         try:
             h, m = map(int, str(hhmm).split(":"))
@@ -276,29 +276,86 @@ def preprocess_dataframe(df_raw, sh):
         except: return pd.NaT
 
     df["_start_dt"] = df["방송시작시간"].apply(to_dt)
-    df = df.merge(df.sort_values(["회사명", "_start_dt"]).drop_duplicates(subset=["회사명", "_start_dt"])[["회사명", "_start_dt"]].assign(_next_unique_start=lambda x: x.groupby("회사명")["_start_dt"].shift(-1)), on=["회사명","_start_dt"], how="left")
+    df = df.merge(
+        df.sort_values(["회사명", "_start_dt"]).drop_duplicates(subset=["회사명", "_start_dt"])[["회사명", "_start_dt"]]
+        .assign(_next_unique_start=lambda x: x.groupby("회사명")["_start_dt"].shift(-1)),
+        on=["회사명","_start_dt"], how="left"
+    )
 
     def decide_end(row):
         st, et = row["_start_dt"], row["_next_unique_start"]
         if pd.isna(st): return pd.NaT
         if pd.isna(et): return datetime.combine(day, datetime.min.time()) + timedelta(days=1, minutes=30)
         return st + timedelta(hours=2) if et - st > timedelta(hours=2) else et
+
     df["_end_dt"] = df.apply(decide_end, axis=1)
-    df["종료시간"] = df["_end_dt"].apply(lambda dt: "24:30" if isinstance(dt, datetime) and (dt - datetime.combine(day, datetime.min.time())) >= timedelta(days=1, minutes=30) else (dt.strftime("%H:%M") if isinstance(dt, datetime) else ""))
-    df["방송시간 절대시"] = df.apply(lambda r: f"{int(max(timedelta(0), r['_end_dt'] - r['_start_dt']).total_seconds() // 60)//60:02d}:{int(max(timedelta(0), r['_end_dt'] - r['_start_dt']).total_seconds() // 60)%60:02d}" if not pd.isna(r["_start_dt"]) and not pd.isna(r["_end_dt"]) else "00:00", axis=1)
-    df["_방송시간(분)"] = df["방송시간 절대시"].apply(lambda v: int(v.split(":")[0])*60 + int(v.split(":")[1]) if ":" in v else 0)
-    df["환산가치"] = df.apply(lambda r: (r["_시간당_환산가치"] / 60.0) * r["_방송시간(분)"] if r["_시간당_환산가치"] != 0.0 and r["_방송시간(분)"] != 0 else 0.0, axis=1)
+    df["종료시간"] = df["_end_dt"].apply(
+        lambda dt: "24:30" if isinstance(dt, datetime) and (dt - datetime.combine(day, datetime.min.time())) >= timedelta(days=1, minutes=30)
+        else (dt.strftime("%H:%M") if isinstance(dt, datetime) else "")
+    )
+    
+    df["_방송시간(분)"] = df.apply(
+        lambda r: int(max(timedelta(0), r['_end_dt'] - r['_start_dt']).total_seconds() // 60) if pd.notna(r["_start_dt"]) and pd.notna(r["_end_dt"]) else 0, axis=1
+    )
+    df["방송시간 절대시"] = df["_방송시간(분)"].apply(lambda m: f"{m//60:02d}:{m%60:02d}")
 
-    grp_counts = df.groupby(["회사명", "방송시작시간"])["방송시작시간"].transform("size")
-    df["분리송출구분"] = grp_counts.apply(lambda x: "분리송출" if x > 1 else "일반")
-    df["분리송출고려환산가치"] = df["환산가치"] / grp_counts.clip(lower=1)
-    df["주문효율 /h"] = df.apply(lambda r: float(r["매출액 환산수식"]) / float(r["분리송출고려환산가치"]) if r["분리송출고려환산가치"] != 0.0 else 0.0, axis=1)
+    # 5. 시간대별 쪼개기 환산가치 계산 로직
+    def calculate_split_value(row):
+        if pd.isna(row["_start_dt"]) or pd.isna(row["_end_dt"]) or ref_df.empty:
+            return 0.0
+        
+        total_val = 0.0
+        current_time = row["_start_dt"]
+        end_time = row["_end_dt"]
+        target_day = row["일자"]
+        
+        while current_time < end_time:
+            current_hour = current_time.hour
+            next_hour_time = (current_time + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+            segment_end = min(next_hour_time, end_time)
+            segment_minutes = (segment_end - current_time).total_seconds() / 60.0
+            
+            try:
+                val_str = ref_df.loc[ref_df["기준시간"] == current_hour, target_day].values
+                hour_rate = float(str(val_str[0]).replace(",", "")) if len(val_str) > 0 and str(val_str[0]).strip() != "" else 0.0
+            except:
+                hour_rate = 0.0
+            
+            total_val += (hour_rate / 60.0) * segment_minutes
+            current_time = segment_end
+            
+        return total_val
 
-    final_cols = ["방송날짜","방송시작시간","상품명","분류","판매량","매출액","상품수","회사명","홈쇼핑구분", "매출액 환산수식","일자","시간대","환산가치","종료시간","방송시간 절대시","분리송출구분", "분리송출고려환산가치","주문효율 /h","AI분류"]
+    df["환산가치"] = df.apply(calculate_split_value, axis=1)
+
+    # 6. 분리송출 58:42 비율 및 N등분 배분
+    df["_순번"] = df.groupby(["회사명", "방송시작시간"]).cumcount()
+    df["_총개수"] = df.groupby(["회사명", "방송시작시간"])["방송시작시간"].transform("size")
+    
+    def apply_split_ratio(row):
+        if row["_총개수"] == 1:
+            return row["환산가치"]
+        elif row["_총개수"] == 2:
+            return row["환산가치"] * 0.58 if row["_순번"] == 0 else row["환산가치"] * 0.42
+        else:
+            return row["환산가치"] / row["_총개수"]
+            
+    df["분리송출고려환산가치"] = df.apply(apply_split_ratio, axis=1)
+    df["분리송출구분"] = df["_총개수"].apply(lambda x: "분리송출" if x > 1 else "일반")
+    
+    # 7. 주문효율 산출
+    df["주문효율 /h"] = df.apply(
+        lambda r: float(r["매출액 환산수식"]) / float(r["분리송출고려환산가치"]) if r["분리송출고려환산가치"] != 0.0 else 0.0, axis=1
+    )
+
+    # 기존 시트 열 포맷 19개 유지
+    final_cols = ["방송날짜","방송시작시간","상품명","분류","판매량","매출액","상품수","회사명","홈쇼핑구분", 
+                  "매출액 환산수식","일자","시간대","환산가치","종료시간","방송시간 절대시","분리송출구분", 
+                  "분리송출고려환산가치","주문효율 /h","AI분류"]
     for c in final_cols:
         if c not in df.columns: df[c] = ""
-    
-    print("✅ 데이터 전처리 완료 (19개 열 생성 - AI분류는 비워둠)") 
+        
+    print("✅ 데이터 전처리 완료 (19개 열 생성 - 분 단위 합산 및 58:42 배분 완료)") 
     return df[final_cols].rename(columns={"상품명": "방송정보"})
 
 # ===================== 메인 =====================
