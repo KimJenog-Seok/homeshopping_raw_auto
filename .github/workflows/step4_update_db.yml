@@ -2,8 +2,8 @@ name: Step 4 Update Master DB (KST)
 
 on:
   schedule:
-    # 매일 05:00
-    - cron: "0 20 * * *"
+    # 매일 04:41
+    - cron: "41 19 * * *"
   workflow_dispatch:
 
 jobs:
