@@ -31,6 +31,12 @@ WORKSHEET_NAME = "편성표RAW"
 # ===================== 유틸 및 크롤링 =====================
 def make_driver():
     opts = uc.ChromeOptions()
+    # ... 기존 옵션들 유지 ...
+    
+    # 💡 드라이버 버전 불일치 방지를 위해 버전 160으로 명시 지정
+    driver = uc.Chrome(options=opts, version_main=160)
+    driver.set_page_load_timeout(60)
+    return driver
     
     # 깃허브 액션용 필수: 헤드리스 모드 활성화
     opts.add_argument("--headless=new")
