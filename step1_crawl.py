@@ -31,12 +31,6 @@ WORKSHEET_NAME = "편성표RAW"
 # ===================== 유틸 및 크롤링 =====================
 def make_driver():
     opts = uc.ChromeOptions()
-    # ... 기존 옵션들 유지 ...
-    
-    # 💡 드라이버 버전 불일치 방지를 위해 버전 160으로 명시 지정
-    driver = uc.Chrome(options=opts, version_main=160)
-    driver.set_page_load_timeout(60)
-    return driver
     
     # 깃허브 액션용 필수: 헤드리스 모드 활성화
     opts.add_argument("--headless=new")
@@ -46,6 +40,7 @@ def make_driver():
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--lang=ko-KR")
     
+    # version_main 파라미터 삭제 (yml 파일에서 stable 크롬 사용 예정)
     driver = uc.Chrome(options=opts)
     driver.set_page_load_timeout(60)
     return driver
@@ -381,7 +376,7 @@ def main():
         print("❌ 오류 발생:", e)
         print(traceback.format_exc())
         
-        # 💡 에러 스크린샷 
+        # 에러 스크린샷 
         if driver:
             try:
                 screenshot_path = str(ARTIFACT_DIR / "error_screenshot.png")
@@ -390,7 +385,7 @@ def main():
             except Exception as ss_e:
                 print(f"⚠️ 스크린샷 저장 실패: {ss_e}")
                 
-        # 💡 깃허브에게 강제로 에러를 보고해서 무한루프 방지
+        # 깃허브에 에러 보고
         sys.exit(1)
         
     finally:
