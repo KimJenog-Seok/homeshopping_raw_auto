@@ -39,8 +39,7 @@ def make_driver():
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--lang=ko-KR")
     
-    # 💡 테스트할 한국 프록시 IP와 포트 번호를 아래에 입력하세요.
-    # 형태 예시: "221.141.140.132:8118"
+    # 💡 한국 프록시 IP 세팅
     PROXY = "221.141.140.132:8118" 
     opts.add_argument(f"--proxy-server=http://{PROXY}")
     
@@ -176,7 +175,21 @@ def execute_logout(driver):
 # ===================== Google Sheets 및 전처리 =====================
 def gs_client_from_env():
     GSVC_JSON_B64 = os.environ.get("KEY1", "")
-    svc_info = json.loads(base64.b64decode(GSVC_JSON_B64).decode("utf-8"))
+    
+    # 깃허브 액션 환경 (환경변수가 있을 때)
+    if GSVC_JSON_B64:
+        svc_info = json.loads(base64.b64decode(GSVC_JSON_B64).decode("utf-8"))
+        print("[Auth] 깃허브 환경변수(KEY1)로 인증 완료")
+    # 로컬 수동 환경 (환경변수가 없을 때 json 파일 직접 읽기)
+    else:
+        key_file_path = "google_secret.json" 
+        try:
+            with open(key_file_path, "r", encoding="utf-8") as f:
+                svc_info = json.load(f)
+            print("[Auth] 로컬 JSON 파일(google_secret.json)로 인증 완료")
+        except FileNotFoundError:
+            raise Exception("❌ KEY1 환경변수도 없고, google_secret.json 파일도 찾을 수 없습니다.")
+
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive",
              "https://www.googleapis.com/auth/spreadsheets"]
     creds = Credentials.from_service_account_info(svc_info, scopes=scope)
@@ -207,7 +220,7 @@ def _to_int_kor(s):
     unit_map = {"억": 100_000_000, "만": 10_000}
     m = re.fullmatch(r"(-?\d+(?:\.\d+)?)(억|만)", t)
     if m: return int(float(m.group(1)) * unit_map[m.group(2)])
-    total = 0;
+    total = 0
     rest = t
     for unit in ["억", "만"]:
         if unit in rest:
@@ -227,14 +240,14 @@ def preprocess_dataframe(df_raw, sh):
     print("🧮 데이터 전처리 시작 (분 단위 시간 분할합산 및 58:42 가중치 적용)")
     df = df_raw.copy()
 
+    # 1. 날짜 및 시간 파싱
     split_result = df["방송시간"].str.split("\n", n=1, expand=True)
 
     def clean_date_str(val):
         match = re.search(r'(\d{2}\.\d{1,2}\.\d{1,2})', str(val))
         return match.group(1) if match else val
 
-    df["방송날짜"] = pd.to_datetime(split_result[0].apply(clean_date_str), format="%y.%m.%d", errors="coerce").dt.strftime(
-        "%Y-%m-%d")
+    df["방송날짜"] = pd.to_datetime(split_result[0].apply(clean_date_str), format="%y.%m.%d", errors="coerce").dt.strftime("%Y-%m-%d")
     df["방송시작시간"] = split_result[1].str.strip() if len(split_result.columns) == 2 else ""
 
     try:
@@ -243,9 +256,11 @@ def preprocess_dataframe(df_raw, sh):
         KST = timezone(timedelta(hours=9))
         day = datetime.now(KST).date() - timedelta(days=1)
 
+    # 2. 회사명 및 홈쇼핑 구분
     df["상품명"], df["회사명"], df["홈쇼핑구분"] = zip(*df["방송정보"].astype(str).apply(split_company_from_broadcast))
     df["매출액 환산수식"] = df["매출액"].apply(_to_int_kor)
 
+    # 3. 기준가치 시트 로드
     try:
         ref_raw = sh.worksheet("기준가치").get_all_values()
         ref_df = pd.DataFrame(ref_raw[1:], columns=[c.strip() for c in ref_raw[0]])
@@ -262,6 +277,7 @@ def preprocess_dataframe(df_raw, sh):
     df["일자"] = pd.to_datetime(df["방송날짜"]).dt.day.astype(str) + "일"
     df["시간대"] = pd.to_datetime(df["방송시작시간"], format="%H:%M", errors="coerce").dt.hour.astype(str)
 
+    # 4. 종료시간 및 분 단위 쪼개기
     def to_dt(hhmm):
         try:
             h, m = map(int, str(hhmm).split(":"))
@@ -295,6 +311,7 @@ def preprocess_dataframe(df_raw, sh):
     )
     df["방송시간 절대시"] = df["_방송시간(분)"].apply(lambda m: f"{m // 60:02d}:{m % 60:02d}")
 
+    # 5. 시간대별 쪼개기 환산가치 계산
     def calculate_split_value(row):
         if pd.isna(row["_start_dt"]) or pd.isna(row["_end_dt"]) or ref_df.empty:
             return 0.0
@@ -324,6 +341,7 @@ def preprocess_dataframe(df_raw, sh):
 
     df["환산가치"] = df.apply(calculate_split_value, axis=1)
 
+    # 6. 분리송출 58:42 비율 배분
     df["_순번"] = df.groupby(["회사명", "방송시작시간"]).cumcount()
     df["_총개수"] = df.groupby(["회사명", "방송시작시간"])["방송시작시간"].transform("size")
 
@@ -338,10 +356,12 @@ def preprocess_dataframe(df_raw, sh):
     df["분리송출고려환산가치"] = df.apply(apply_split_ratio, axis=1)
     df["분리송출구분"] = df["_총개수"].apply(lambda x: "분리송출" if x > 1 else "일반")
 
+    # 7. 주문효율 산출
     df["주문효율 /h"] = df.apply(
         lambda r: float(r["매출액 환산수식"]) / float(r["분리송출고려환산가치"]) if r["분리송출고려환산가치"] != 0.0 else 0.0, axis=1
     )
 
+    # 최종 열 정리
     final_cols = ["방송날짜", "방송시작시간", "상품명", "분류", "판매량", "매출액", "상품수", "회사명", "홈쇼핑구분",
                   "매출액 환산수식", "일자", "시간대", "환산가치", "종료시간", "방송시간 절대시", "분리송출구분",
                   "분리송출고려환산가치", "주문효율 /h", "AI분류"]
