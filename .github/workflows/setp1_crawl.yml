@@ -26,10 +26,12 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Install dependencies
+      - name: Install dependencies and Xvfb
         run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
           python -m pip install --upgrade pip
-          pip install selenium pandas gspread google-auth google-auth-oauthlib undetected-chromedriver
+          pip install selenium pandas gspread google-auth google-auth-oauthlib
 
       - name: Run step1_crawl.py with Retry
         uses: nick-fields/retry@v3
@@ -37,7 +39,7 @@ jobs:
           timeout_minutes: 20
           max_attempts: 3
           retry_on: error
-          command: python step1_crawl.py
+          command: xvfb-run --auto-servernum python step1_crawl.py
         env:
           KEY1: ${{ secrets.KEY1 }}
           
@@ -47,9 +49,3 @@ jobs:
         with:
           name: error-screenshot
           path: artifacts/error_screenshot.png
-      - name: Upload screenshot
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: error-screenshot
-          path: artifacts/
