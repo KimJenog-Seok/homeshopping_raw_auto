@@ -9,6 +9,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
+import undetected_chromedriver as uc
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -29,30 +30,17 @@ WORKSHEET_NAME = "편성표RAW"
 
 # ===================== 유틸 및 크롤링 =====================
 def make_driver():
-    opts = webdriver.ChromeOptions()
+    opts = uc.ChromeOptions()
     
-    # 💡 깃허브 액션용 필수: 헤드리스 모드 활성화
+    # 깃허브 액션용 필수: 헤드리스 모드 활성화
     opts.add_argument("--headless=new")
-    
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-gpu")
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--lang=ko-KR")
-    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     
-    opts.add_argument("--disable-blink-features=AutomationControlled")
-    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-    opts.add_experimental_option('useAutomationExtension', False)
-    
-    driver = webdriver.Chrome(options=opts)
-    driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-        'source': '''
-            Object.defineProperty(navigator, 'webdriver', {
-              get: () => undefined
-            })
-        '''
-    })
+    driver = uc.Chrome(options=opts)
     driver.set_page_load_timeout(60)
     return driver
 
@@ -75,21 +63,21 @@ def login_and_handle_session(driver):
     email_input = [e for e in driver.find_elements(By.CSS_SELECTOR, "input[name='email']") if e.is_displayed()][0]
     pw_input    = [e for e in driver.find_elements(By.CSS_SELECTOR, "input[name='password']") if e.is_displayed()][0]
     
-    # 💡 [핵심 수정 1] 이메일 창 물리적 클릭 후 입력!
+    # 이메일 창 물리적 클릭 후 입력
     email_input.click()
     time.sleep(0.5)
     email_input.clear()
     email_input.send_keys(ECOMM_ID)
     time.sleep(0.5)
     
-    # 💡 [핵심 수정 2] 비밀번호 창 물리적 클릭 후 입력!
+    # 비밀번호 창 물리적 클릭 후 입력
     pw_input.click()
     time.sleep(0.5)
     pw_input.clear()
     pw_input.send_keys(ECOMM_PW)
     time.sleep(0.5)
     
-    # 💡 [핵심 수정 3] 엔터키 대신 '로그인' 버튼 물리적 클릭!
+    # '로그인' 버튼 물리적 클릭
     login_btn = driver.find_element(By.XPATH, "//button[contains(text(), '로그인')]")
     login_btn.click()
     print("✅ 로그인 버튼 물리적 클릭 완료!")
