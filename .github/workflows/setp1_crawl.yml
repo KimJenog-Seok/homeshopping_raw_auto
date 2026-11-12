@@ -2,7 +2,7 @@ name: Step 1 Crawl Daily (KST)
 
 on:
   schedule:
-  # 최종: 03:11 
+    # 최종: 03:11 KST
     - cron: "11 18 * * *"
   workflow_dispatch:
 
@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,6 +22,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Chrome
+        id: setup-chrome
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
@@ -31,21 +32,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb
           python -m pip install --upgrade pip
-          pip install selenium pandas gspread google-auth google-auth-oauthlib
+          pip install setuptools selenium undetected-chromedriver pandas gspread google-auth google-auth-oauthlib
+
+      - name: Show environment
+        run: |
+          echo "Chrome path: ${{ steps.setup-chrome.outputs.chrome-path }}"
+          "${{ steps.setup-chrome.outputs.chrome-path }}" --version || true
+          which xvfb-run
 
       - name: Run step1_crawl.py with Retry
         uses: nick-fields/retry@v3
         with:
-          timeout_minutes: 20
-          max_attempts: 3
+          timeout_minutes: 10
+          max_attempts: 2
           retry_on: error
-          command: xvfb-run --auto-servernum python step1_crawl.py
+          command: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python step1_crawl.py
         env:
           KEY1: ${{ secrets.KEY1 }}
-          
-      - name: Upload Error Screenshot
-        if: failure()
+          ECOMM_ID: ${{ secrets.ECOMM_ID }}
+          ECOMM_PW: ${{ secrets.ECOMM_PW }}
+          CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+          HEADLESS: "0"
+
+      - name: Upload debug artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: error-screenshot
-          path: artifacts/error_screenshot.png
+          name: debug
+          path: artifacts/
+          if-no-files-found: ignore
