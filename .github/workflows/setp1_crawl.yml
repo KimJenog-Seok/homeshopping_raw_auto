@@ -47,3 +47,9 @@ jobs:
         with:
           name: error-screenshot
           path: artifacts/error_screenshot.png
+      - name: Upload screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshot
+          path: artifacts/
