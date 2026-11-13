@@ -1,112 +1,52 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
-import time
-import json
-import zipfile  # 유료 프록시 플러그인용 추가 라이브러리
-from datetime import datetime, timedelta
+import os, time, re, json, base64, sys
+from pathlib import Path
+from datetime import datetime, timedelta, timezone
+
+import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
+
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.keys import Keys
 
-# ==========================================
-# 💡 1. 유료 프록시 자동 로그인 플러그인 생성 함수
-# ==========================================
-def get_proxy_extension():
-    manifest_json = """
-    {
-        "version": "1.0.0",
-        "manifest_version": 2,
-        "name": "Chrome Proxy",
-        "permissions": [
-            "proxy",
-            "tabs",
-            "unlimitedStorage",
-            "storage",
-            "<all_urls>",
-            "webRequest",
-            "webRequestBlocking"
-        ],
-        "background": {
-            "scripts": ["background.js"]
-        },
-        "minimum_chrome_version":"22.0.0"
-    }
-    """
-    background_js = """
-    var config = {
-            mode: "fixed_servers",
-            rules: {
-              singleProxy: {
-                scheme: "http",
-                host: "geo.iproyal.com",
-                port: parseInt(12321)
-              },
-              bypassList: ["localhost"]
-            }
-          };
-    chrome.proxy.settings.set({value: config, scope: "regular"}, function() {});
-    function callbackFn(details) {
-        return {
-            authCredentials: {
-                username: "qvIaO3QdjHdjKAVT",
-                password: "SYFNb6TCIuOOfm0b_country-kr_city-seoul"
-            }
-        };
-    }
-    chrome.webRequest.onAuthRequired.addListener(
-                callbackFn,
-                {urls: ["<all_urls>"]},
-                ['blocking']
-    );
-    """
-    pluginfile = 'proxy_auth_plugin.zip'
-    with zipfile.ZipFile(pluginfile, 'w') as zp:
-        zp.writestr("manifest.json", manifest_json)
-        zp.writestr("background.js", background_js)
-    return pluginfile
+# ===================== 설정 =====================
+WAIT = 20
+ARTIFACT_DIR = Path("artifacts")
+ARTIFACT_DIR.mkdir(exist_ok=True)
 
-# ==========================================
-# 💡 2. 로그인 및 사이트 진입 (기존 고객님 함수)
-# ==========================================
-def login_and_handle_session(driver):
-    print("🌐 라이브이커머스 접속 시도 중... (IPRoyal 한국 프록시 경유)")
-    driver.get("https://live.ecomm-data.com")
+ECOMM_ID = "smt@trncompany.co.kr"
+ECOMM_PW = "sales7777!!"
+SCHEDULE_URL = "https://live.ecomm-data.com/schedule/hs"
+
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Aqwj1SkHsgAr08doidy_tfnHJNwgdFfNrMoMteoXMdE/edit"
+WORKSHEET_NAME = "편성표RAW"
+
+# ===================== 유틸 및 크롤링 =====================
+def make_driver():
+    opts = webdriver.ChromeOptions()
     
-    # ⬇️ (이 아래부터는 고객님이 기존에 짜두신 아이디/비밀번호 입력 코드가 그대로 이어집니다)
-
-
-# ==========================================
-# 💡 3. 메인 실행 함수
-# ==========================================
-def main():
-    # ⬇️ (이곳에 있던 수동 날짜 오버라이드 등 기존 로직은 그대로 두시면 됩니다)
-
-    # --- 크롬 옵션 및 드라이버 세팅 부분 ---
-    opts = Options()
-    opts.add_argument("--headless=new")  # 깃허브 서버용 최신 백그라운드 옵션
+    # 깃허브 액션 환경을 위한 필수 옵션
+    opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
     opts.add_argument("--window-size=1920,1080")
+    opts.add_argument("--lang=ko-KR")
     
-    # 👉 핵심: 위에서 만든 프록시 자동 로그인 플러그인을 크롬에 장착
-    opts.add_extension(get_proxy_extension()) 
+    # 💡 테스트할 한국 프록시 IP와 포트 번호를 아래에 입력하세요.
+    # 형태 예시: "221.141.140.132:8118"
+    PROXY = "221.141.140.132:8118" 
+    opts.add_argument(f"--proxy-server=http://{PROXY}")
     
-    print("🚀 크롬 드라이버 시작 (유료 프록시 적용 완료)")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
-    
-    try:
-        # 로그인 함수 호출
-        login_and_handle_session(driver)
-        
-        # ⬇️ (이 아래부터는 379번째 줄 이후의 기존 크롤링 본문 코드가 그대로 이어집니다)
+    driver = webdriver.Chrome(options=opts)
+    driver.set_page_load_timeout(60)
+    return driver
 
 def login_and_handle_session(driver):
     driver.get("https://live.ecomm-data.com")
@@ -236,21 +176,7 @@ def execute_logout(driver):
 # ===================== Google Sheets 및 전처리 =====================
 def gs_client_from_env():
     GSVC_JSON_B64 = os.environ.get("KEY1", "")
-    
-    # 깃허브 액션 환경 (환경변수가 있을 때)
-    if GSVC_JSON_B64:
-        svc_info = json.loads(base64.b64decode(GSVC_JSON_B64).decode("utf-8"))
-        print("[Auth] 깃허브 환경변수(KEY1)로 인증 완료")
-    # 로컬 수동 환경 (환경변수가 없을 때 json 파일 직접 읽기)
-    else:
-        key_file_path = "google_secret.json" 
-        try:
-            with open(key_file_path, "r", encoding="utf-8") as f:
-                svc_info = json.load(f)
-            print("[Auth] 로컬 JSON 파일(google_secret.json)로 인증 완료")
-        except FileNotFoundError:
-            raise Exception("❌ KEY1 환경변수도 없고, google_secret.json 파일도 찾을 수 없습니다.")
-
+    svc_info = json.loads(base64.b64decode(GSVC_JSON_B64).decode("utf-8"))
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive",
              "https://www.googleapis.com/auth/spreadsheets"]
     creds = Credentials.from_service_account_info(svc_info, scopes=scope)
@@ -281,7 +207,7 @@ def _to_int_kor(s):
     unit_map = {"억": 100_000_000, "만": 10_000}
     m = re.fullmatch(r"(-?\d+(?:\.\d+)?)(억|만)", t)
     if m: return int(float(m.group(1)) * unit_map[m.group(2)])
-    total = 0
+    total = 0;
     rest = t
     for unit in ["억", "만"]:
         if unit in rest:
@@ -301,14 +227,14 @@ def preprocess_dataframe(df_raw, sh):
     print("🧮 데이터 전처리 시작 (분 단위 시간 분할합산 및 58:42 가중치 적용)")
     df = df_raw.copy()
 
-    # 1. 날짜 및 시간 파싱
     split_result = df["방송시간"].str.split("\n", n=1, expand=True)
 
     def clean_date_str(val):
         match = re.search(r'(\d{2}\.\d{1,2}\.\d{1,2})', str(val))
         return match.group(1) if match else val
 
-    df["방송날짜"] = pd.to_datetime(split_result[0].apply(clean_date_str), format="%y.%m.%d", errors="coerce").dt.strftime("%Y-%m-%d")
+    df["방송날짜"] = pd.to_datetime(split_result[0].apply(clean_date_str), format="%y.%m.%d", errors="coerce").dt.strftime(
+        "%Y-%m-%d")
     df["방송시작시간"] = split_result[1].str.strip() if len(split_result.columns) == 2 else ""
 
     try:
@@ -317,11 +243,9 @@ def preprocess_dataframe(df_raw, sh):
         KST = timezone(timedelta(hours=9))
         day = datetime.now(KST).date() - timedelta(days=1)
 
-    # 2. 회사명 및 홈쇼핑 구분
     df["상품명"], df["회사명"], df["홈쇼핑구분"] = zip(*df["방송정보"].astype(str).apply(split_company_from_broadcast))
     df["매출액 환산수식"] = df["매출액"].apply(_to_int_kor)
 
-    # 3. 기준가치 시트 로드
     try:
         ref_raw = sh.worksheet("기준가치").get_all_values()
         ref_df = pd.DataFrame(ref_raw[1:], columns=[c.strip() for c in ref_raw[0]])
@@ -338,7 +262,6 @@ def preprocess_dataframe(df_raw, sh):
     df["일자"] = pd.to_datetime(df["방송날짜"]).dt.day.astype(str) + "일"
     df["시간대"] = pd.to_datetime(df["방송시작시간"], format="%H:%M", errors="coerce").dt.hour.astype(str)
 
-    # 4. 종료시간 및 분 단위 쪼개기
     def to_dt(hhmm):
         try:
             h, m = map(int, str(hhmm).split(":"))
@@ -372,7 +295,6 @@ def preprocess_dataframe(df_raw, sh):
     )
     df["방송시간 절대시"] = df["_방송시간(분)"].apply(lambda m: f"{m // 60:02d}:{m % 60:02d}")
 
-    # 5. 시간대별 쪼개기 환산가치 계산
     def calculate_split_value(row):
         if pd.isna(row["_start_dt"]) or pd.isna(row["_end_dt"]) or ref_df.empty:
             return 0.0
@@ -402,7 +324,6 @@ def preprocess_dataframe(df_raw, sh):
 
     df["환산가치"] = df.apply(calculate_split_value, axis=1)
 
-    # 6. 분리송출 58:42 비율 배분
     df["_순번"] = df.groupby(["회사명", "방송시작시간"]).cumcount()
     df["_총개수"] = df.groupby(["회사명", "방송시작시간"])["방송시작시간"].transform("size")
 
@@ -417,12 +338,10 @@ def preprocess_dataframe(df_raw, sh):
     df["분리송출고려환산가치"] = df.apply(apply_split_ratio, axis=1)
     df["분리송출구분"] = df["_총개수"].apply(lambda x: "분리송출" if x > 1 else "일반")
 
-    # 7. 주문효율 산출
     df["주문효율 /h"] = df.apply(
         lambda r: float(r["매출액 환산수식"]) / float(r["분리송출고려환산가치"]) if r["분리송출고려환산가치"] != 0.0 else 0.0, axis=1
     )
 
-    # 최종 열 정리
     final_cols = ["방송날짜", "방송시작시간", "상품명", "분류", "판매량", "매출액", "상품수", "회사명", "홈쇼핑구분",
                   "매출액 환산수식", "일자", "시간대", "환산가치", "종료시간", "방송시간 절대시", "분리송출구분",
                   "분리송출고려환산가치", "주문효율 /h", "AI분류"]
