@@ -1,51 +1,112 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, time, re, json, base64, sys
-from pathlib import Path
-from datetime import datetime, timedelta, timezone
-
-import pandas as pd
+import os
+import time
+import json
+import zipfile  # 유료 프록시 플러그인용 추가 라이브러리
+from datetime import datetime, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
-
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.keys import Keys
+from webdriver_manager.chrome import ChromeDriverManager
 
-# ===================== 설정 =====================
-WAIT = 20
-ARTIFACT_DIR = Path("artifacts")
-ARTIFACT_DIR.mkdir(exist_ok=True)
+# ==========================================
+# 💡 1. 유료 프록시 자동 로그인 플러그인 생성 함수
+# ==========================================
+def get_proxy_extension():
+    manifest_json = """
+    {
+        "version": "1.0.0",
+        "manifest_version": 2,
+        "name": "Chrome Proxy",
+        "permissions": [
+            "proxy",
+            "tabs",
+            "unlimitedStorage",
+            "storage",
+            "<all_urls>",
+            "webRequest",
+            "webRequestBlocking"
+        ],
+        "background": {
+            "scripts": ["background.js"]
+        },
+        "minimum_chrome_version":"22.0.0"
+    }
+    """
+    background_js = """
+    var config = {
+            mode: "fixed_servers",
+            rules: {
+              singleProxy: {
+                scheme: "http",
+                host: "geo.iproyal.com",
+                port: parseInt(12321)
+              },
+              bypassList: ["localhost"]
+            }
+          };
+    chrome.proxy.settings.set({value: config, scope: "regular"}, function() {});
+    function callbackFn(details) {
+        return {
+            authCredentials: {
+                username: "qvIaO3QdjHdjKAVT",
+                password: "SYFNb6TCIuOOfm0b_country-kr_city-seoul"
+            }
+        };
+    }
+    chrome.webRequest.onAuthRequired.addListener(
+                callbackFn,
+                {urls: ["<all_urls>"]},
+                ['blocking']
+    );
+    """
+    pluginfile = 'proxy_auth_plugin.zip'
+    with zipfile.ZipFile(pluginfile, 'w') as zp:
+        zp.writestr("manifest.json", manifest_json)
+        zp.writestr("background.js", background_js)
+    return pluginfile
 
-ECOMM_ID = "smt@trncompany.co.kr"
-ECOMM_PW = "sales7777!!"
-SCHEDULE_URL = "https://live.ecomm-data.com/schedule/hs"
-
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Aqwj1SkHsgAr08doidy_tfnHJNwgdFfNrMoMteoXMdE/edit"
-WORKSHEET_NAME = "편성표RAW"
-
-# ===================== 유틸 및 크롤링 =====================
-def make_driver():
-    opts = webdriver.ChromeOptions()
+# ==========================================
+# 💡 2. 로그인 및 사이트 진입 (기존 고객님 함수)
+# ==========================================
+def login_and_handle_session(driver):
+    print("🌐 라이브이커머스 접속 시도 중... (IPRoyal 한국 프록시 경유)")
+    driver.get("https://live.ecomm-data.com")
     
-    # 깃허브 액션 환경을 위한 필수 옵션
-    opts.add_argument("--headless=new")
+    # ⬇️ (이 아래부터는 고객님이 기존에 짜두신 아이디/비밀번호 입력 코드가 그대로 이어집니다)
+
+
+# ==========================================
+# 💡 3. 메인 실행 함수
+# ==========================================
+def main():
+    # ⬇️ (이곳에 있던 수동 날짜 오버라이드 등 기존 로직은 그대로 두시면 됩니다)
+
+    # --- 크롬 옵션 및 드라이버 세팅 부분 ---
+    opts = Options()
+    opts.add_argument("--headless=new")  # 깃허브 서버용 최신 백그라운드 옵션
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--disable-gpu")
     opts.add_argument("--window-size=1920,1080")
-    opts.add_argument("--lang=ko-KR")
     
-    # 💡 한국 프록시 IP 세팅
-    PROXY = "161.118.152.153:8118" 
-    opts.add_argument(f"--proxy-server=http://{PROXY}")
+    # 👉 핵심: 위에서 만든 프록시 자동 로그인 플러그인을 크롬에 장착
+    opts.add_extension(get_proxy_extension()) 
     
-    driver = webdriver.Chrome(options=opts)
-    driver.set_page_load_timeout(60)
-    return driver
+    print("🚀 크롬 드라이버 시작 (유료 프록시 적용 완료)")
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
+    
+    try:
+        # 로그인 함수 호출
+        login_and_handle_session(driver)
+        
+        # ⬇️ (이 아래부터는 379번째 줄 이후의 기존 크롤링 본문 코드가 그대로 이어집니다)
 
 def login_and_handle_session(driver):
     driver.get("https://live.ecomm-data.com")
