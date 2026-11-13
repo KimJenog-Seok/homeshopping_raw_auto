@@ -40,7 +40,7 @@ def make_driver():
     opts.add_argument("--lang=ko-KR")
     
     # 💡 한국 프록시 IP 세팅
-    PROXY = "221.141.140.132:8118" 
+    PROXY = "43.128.144.133:18080" 
     opts.add_argument(f"--proxy-server=http://{PROXY}")
     
     driver = webdriver.Chrome(options=opts)
