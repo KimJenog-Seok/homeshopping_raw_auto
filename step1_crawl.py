@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, time, re, json, base64, sys
+import os, time, re, json, base64, sys, socket, select, threading, urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -13,40 +14,216 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.keys import Keys
 
 # ===================== 설정 =====================
 WAIT = 20
 ARTIFACT_DIR = Path("artifacts")
 ARTIFACT_DIR.mkdir(exist_ok=True)
 
-ECOMM_ID = "smt@trncompany.co.kr"
-ECOMM_PW = "sales7777!!"
-SCHEDULE_URL = "https://live.ecomm-data.com/schedule/hs"
+# 환경변수(Secrets)가 있으면 우선 사용, 없으면 아래 값 사용
+ECOMM_ID = (os.environ.get("ECOMM_ID") or "여기에_아이디").strip()
+ECOMM_PW = (os.environ.get("ECOMM_PW") or "여기에_비밀번호").strip()
 
+# iProyal 프록시 (Secrets 권장: 유료 서비스라 노출되면 요금이 나갈 수 있음)
+#   PROXY_ADDR : geo.iproyal.com:12321
+#   PROXY_AUTH : 아이디:비밀번호   (대시보드 proxy_auth 값 그대로)
+PROXY_ADDR = (os.environ.get("PROXY_ADDR") or "").strip()
+PROXY_AUTH = (os.environ.get("PROXY_AUTH") or "").strip()
+
+SCHEDULE_URL = "https://live.ecomm-data.com/schedule/hs"
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Aqwj1SkHsgAr08doidy_tfnHJNwgdFfNrMoMteoXMdE/edit"
 WORKSHEET_NAME = "편성표RAW"
 
-# ===================== 유틸 및 크롤링 =====================
-def make_driver():
+
+# ---- RELAY START
+class AuthProxyRelay:
+    """로컬(127.0.0.1)에서 '인증 없는 프록시'처럼 동작하고,
+    업스트림(유료 프록시)으로 보낼 때 아이디/비밀번호를 붙여 전달한다.
+    Chrome 은 인증 프록시를 직접 못 쓰기 때문에 필요."""
+
+    def __init__(self, upstream_addr, auth):
+        host, port = upstream_addr.rsplit(":", 1)
+        self.up_host, self.up_port = host.strip(), int(port)
+        user, pw = auth.split(":", 1)
+        token = base64.b64encode(f"{user}:{pw}".encode()).decode()
+        self.auth_header = f"Proxy-Authorization: Basic {token}\r\n".encode()
+        self.stats = {}
+        self.lock = threading.Lock()
+        self.server = None
+        self.port = None
+
+    def start(self):
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server.bind(("127.0.0.1", 0))
+        self.server.listen(128)
+        self.port = self.server.getsockname()[1]
+        threading.Thread(target=self._accept_loop, daemon=True).start()
+        return self.port
+
+    def stop(self):
+        try:
+            self.server.close()
+        except Exception:
+            pass
+
+    def _accept_loop(self):
+        while True:
+            try:
+                client, _ = self.server.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._handle, args=(client,), daemon=True).start()
+
+    @staticmethod
+    def _read_head(sock):
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = sock.recv(65536)
+            if not chunk:
+                return None, b""
+            data += chunk
+            if len(data) > 1_000_000:
+                return None, b""
+        head, _, rest = data.partition(b"\r\n\r\n")
+        return head, rest
+
+    def _add(self, label, n):
+        with self.lock:
+            self.stats[label] = self.stats.get(label, 0) + n
+
+    def _handle(self, client):
+        upstream = None
+        try:
+            client.settimeout(60)
+            head, rest = self._read_head(client)
+            if head is None:
+                return
+            lines = head.split(b"\r\n")
+            method, target, _ver = lines[0].decode("latin-1").split(" ", 2)
+            upstream = socket.create_connection((self.up_host, self.up_port), timeout=30)
+
+            if method.upper() == "CONNECT":
+                label = target.rsplit(":", 1)[0]
+                upstream.sendall(
+                    f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n".encode()
+                    + self.auth_header + b"Proxy-Connection: keep-alive\r\n\r\n"
+                )
+                uhead, urest = self._read_head(upstream)
+                if uhead is None:
+                    client.sendall(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+                    return
+                status = uhead.split(b"\r\n")[0].decode("latin-1")
+                if " 200" not in status:
+                    print(f"[RELAY] 업스트림 응답 이상: {status} (target={target})")
+                    client.sendall(uhead + b"\r\n\r\n")
+                    return
+                client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                if urest:
+                    client.sendall(urest)
+                if rest:
+                    upstream.sendall(rest)
+            else:
+                label = urlparse(target).hostname or "http"
+                new_head = lines[0] + b"\r\n" + self.auth_header + b"\r\n".join(lines[1:]) + b"\r\n\r\n"
+                upstream.sendall(new_head + rest)
+
+            self._pipe(client, upstream, label)
+        except Exception:
+            pass
+        finally:
+            for s in (client, upstream):
+                try:
+                    if s:
+                        s.close()
+                except Exception:
+                    pass
+
+    def _pipe(self, client, upstream, label):
+        client.settimeout(None)
+        upstream.settimeout(None)
+        socks = [client, upstream]
+        while True:
+            r, _, x = select.select(socks, [], socks, 120)
+            if x or not r:
+                return
+            for s in r:
+                data = s.recv(65536)
+                if not data:
+                    return
+                (upstream if s is client else client).sendall(data)
+                self._add(label, len(data))
+
+    def report(self):
+        with self.lock:
+            total = sum(self.stats.values())
+            top = sorted(self.stats.items(), key=lambda kv: kv[1], reverse=True)[:5]
+        print(f"[PROXY] 총 트래픽: {total / 1024 / 1024:.2f} MB")
+        for host, n in top:
+            print(f"[PROXY]   {host}: {n / 1024 / 1024:.2f} MB")
+# ---- RELAY END
+
+
+def check_exit_ip(port):
+    """프록시를 통해 나가는 IP 를 확인 (실패하면 브라우저를 띄우기 전에 중단)"""
+    proxy = f"http://127.0.0.1:{port}"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+    try:
+        with opener.open("https://ipv4.icanhazip.com", timeout=30) as r:
+            return r.read().decode().strip()
+    except Exception as e:
+        raise RuntimeError(f"프록시 연결 확인 실패: {e} (PROXY_ADDR/PROXY_AUTH 값, 요금/잔여 트래픽 확인)")
+
+
+def setup_proxy():
+    if not (PROXY_ADDR and PROXY_AUTH):
+        print("[PROXY] 설정 없음 → 프록시 없이 직접 접속")
+        return None
+    relay = AuthProxyRelay(PROXY_ADDR, PROXY_AUTH)
+    port = relay.start()
+    ip = check_exit_ip(port)
+    print(f"[PROXY] 중계 시작(127.0.0.1:{port}) / 나가는 IP: {ip}")
+    return relay
+
+
+# ===================== 브라우저 / 크롤링 =====================
+def make_driver(proxy_port=None):
     opts = webdriver.ChromeOptions()
-    
-    # 깃허브 액션 환경을 위한 필수 옵션
-    opts.add_argument("--headless=new")
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--disable-gpu")
-    opts.add_argument("--window-size=1920,1080")
-    opts.add_argument("--lang=ko-KR")
-    
-    # 💡 테스트할 한국 프록시 IP와 포트 번호를 아래에 입력하세요.
-    # 형태 예시: "221.141.140.132:8118"
-    PROXY = "221.141.140.132:8118" 
-    opts.add_argument(f"--proxy-server=http://{PROXY}")
-    
+
+    if os.environ.get("HEADLESS", "1") == "1":
+        opts.add_argument("--headless=new")
+    for arg in ("--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
+                "--window-size=1920,1080", "--lang=ko-KR"):
+        opts.add_argument(arg)
+
+    # 느린 회선에서도 버티도록: 이미지 등 전부 기다리지 않음
+    opts.page_load_strategy = "eager"
+
+    # 프록시 트래픽(GB 과금) 절약: 이미지 차단
+    if os.environ.get("BLOCK_IMAGES", "1") == "1":
+        opts.add_experimental_option("prefs", {"profile.managed_default_content_settings.images": 2})
+
+    if proxy_port:
+        opts.add_argument(f"--proxy-server=http://127.0.0.1:{proxy_port}")
+
+    chrome_bin = os.environ.get("CHROME_BIN")
+    if chrome_bin and Path(chrome_bin).exists():
+        opts.binary_location = chrome_bin
+
     driver = webdriver.Chrome(options=opts)
-    driver.set_page_load_timeout(60)
+    driver.set_page_load_timeout(90)
     return driver
+
+
+def dump_state(driver):
+    try:
+        print("[DEBUG] URL  :", driver.current_url)
+        print("[DEBUG] TITLE:", driver.title)
+        print("[DEBUG] BODY :", repr(driver.find_element(By.TAG_NAME, "body").text[:300]))
+        driver.save_screenshot(str(ARTIFACT_DIR / "error_screenshot.png"))
+    except Exception as e:
+        print(f"⚠️ 상태 저장 실패: {e}")
+
 
 def login_and_handle_session(driver):
     driver.get("https://live.ecomm-data.com")
@@ -81,15 +258,13 @@ def login_and_handle_session(driver):
 
     login_btn = driver.find_element(By.XPATH, "//button[contains(text(), '로그인')]")
     login_btn.click()
-    print("✅ 로그인 버튼 물리적 클릭 완료!")
+    print("✅ 로그인 버튼 클릭 완료")
 
     try:
-        WebDriverWait(driver, 10).until(
-            lambda d: "/user/sign_in" not in d.current_url
-        )
-        print(f"✅ 실제 로그인 성공 판정! 변경된 URL: {driver.current_url}")
-    except:
-        raise Exception(f"❌ 로그인 실패! 튕겼거나 막혔습니다. 현재 URL: {driver.current_url}")
+        WebDriverWait(driver, 15).until(lambda d: "/user/sign_in" not in d.current_url)
+        print(f"✅ 로그인 성공! URL: {driver.current_url}")
+    except Exception:
+        raise Exception(f"❌ 로그인 실패! 현재 URL: {driver.current_url}")
 
     time.sleep(3)
 
@@ -107,6 +282,7 @@ def login_and_handle_session(driver):
 
     time.sleep(3)
 
+
 def crawl_schedule(driver):
     driver.get(SCHEDULE_URL)
     print("✅ 편성표 홈쇼핑 페이지 이동 완료")
@@ -117,13 +293,13 @@ def crawl_schedule(driver):
     date_text = str(yesterday.day)
 
     date_button_xpath = f"//div[text()='{date_text}']"
-    date_button = WebDriverWait(driver, 10).until(
+    date_button = WebDriverWait(driver, WAIT).until(
         EC.element_to_be_clickable((By.XPATH, date_button_xpath))
     )
     driver.execute_script("arguments[0].click();", date_button)
     time.sleep(3)
 
-    tables = WebDriverWait(driver, 10).until(
+    tables = WebDriverWait(driver, WAIT).until(
         EC.presence_of_all_elements_located((By.TAG_NAME, "table"))
     )
 
@@ -140,20 +316,21 @@ def crawl_schedule(driver):
                     try:
                         spans = cols[1].find_elements(By.TAG_NAME, "span")
                         broadcast_time = f"{spans[0].text.strip()}\n{spans[1].text.strip()}" if len(spans) == 2 else \
-                        cols[1].text.strip()
-                    except:
+                            cols[1].text.strip()
+                    except Exception:
                         broadcast_time = cols[1].text.strip()
 
                     all_data.append({
                         "방송시간": broadcast_time, "방송정보": cols[2].text.strip(), "분류": cols[3].text.strip(),
                         "판매량": cols[4].text.strip(), "매출액": cols[5].text.strip(), "상품수": cols[6].text.strip()
                     })
-        except:
+        except Exception:
             continue
 
     df = pd.DataFrame(all_data, columns=columns)
     print(f"총 {len(df)}개 편성표 정보 추출 완료")
     return df
+
 
 def execute_logout(driver):
     print("🚪 로그아웃 절차 시작")
@@ -171,7 +348,8 @@ def execute_logout(driver):
         time.sleep(2)
         print("✅ 정상적으로 로그아웃 되었습니다.")
     except Exception as e:
-        print(f"⚠️ 로그아웃 과정에서 문제가 발생했습니다: {e}")
+        print(f"⚠️ 로그아웃 과정에서 문제가 발생했습니다: {type(e).__name__}")
+
 
 # ===================== Google Sheets 및 전처리 =====================
 def gs_client_from_env():
@@ -182,6 +360,7 @@ def gs_client_from_env():
     creds = Credentials.from_service_account_info(svc_info, scopes=scope)
     return gspread.authorize(creds)
 
+
 PLATFORM_MAP = {
     "CJ온스타일": "Live", "CJ온스타일 플러스": "TC", "GS홈쇼핑": "Live", "GS홈쇼핑 마이샵": "TC",
     "KT알파쇼핑": "TC", "NS홈쇼핑": "Live", "NS홈쇼핑 샵플러스": "TC", "SK스토아": "TC",
@@ -189,6 +368,7 @@ PLATFORM_MAP = {
     "신세계쇼핑": "TC", "현대홈쇼핑": "Live", "현대홈쇼핑 플러스샵": "TC", "홈앤쇼핑": "Live",
 }
 PLATFORMS_BY_LEN = sorted(PLATFORM_MAP.keys(), key=len, reverse=True)
+
 
 def split_company_from_broadcast(text):
     if not text: return text, "", ""
@@ -200,6 +380,7 @@ def split_company_from_broadcast(text):
             return cleaned, key, PLATFORM_MAP[key]
     return text, "", ""
 
+
 def _to_int_kor(s):
     if not s or str(s).strip() in ["", "-"]: return 0
     t = str(s).strip().replace(",", "").replace(" ", "")
@@ -207,14 +388,14 @@ def _to_int_kor(s):
     unit_map = {"억": 100_000_000, "만": 10_000}
     m = re.fullmatch(r"(-?\d+(?:\.\d+)?)(억|만)", t)
     if m: return int(float(m.group(1)) * unit_map[m.group(2)])
-    total = 0;
+    total = 0
     rest = t
     for unit in ["억", "만"]:
         if unit in rest:
             parts = rest.split(unit)
             try:
                 total += int(float(parts[0]) * unit_map[unit])
-            except:
+            except Exception:
                 pass
             rest = parts[1] if len(parts) > 1 else ""
     if re.fullmatch(r"-?\d+", rest): total += int(rest)
@@ -222,6 +403,7 @@ def _to_int_kor(s):
         nums = re.findall(r"-?\d+", t)
         return int(nums[0]) if nums else 0
     return total
+
 
 def preprocess_dataframe(df_raw, sh):
     print("🧮 데이터 전처리 시작 (분 단위 시간 분할합산 및 58:42 가중치 적용)")
@@ -233,13 +415,13 @@ def preprocess_dataframe(df_raw, sh):
         match = re.search(r'(\d{2}\.\d{1,2}\.\d{1,2})', str(val))
         return match.group(1) if match else val
 
-    df["방송날짜"] = pd.to_datetime(split_result[0].apply(clean_date_str), format="%y.%m.%d", errors="coerce").dt.strftime(
-        "%Y-%m-%d")
+    df["방송날짜"] = pd.to_datetime(split_result[0].apply(clean_date_str), format="%y.%m.%d",
+                                errors="coerce").dt.strftime("%Y-%m-%d")
     df["방송시작시간"] = split_result[1].str.strip() if len(split_result.columns) == 2 else ""
 
     try:
         day = pd.to_datetime(df["방송날짜"].iloc[0]).date()
-    except:
+    except Exception:
         KST = timezone(timedelta(hours=9))
         day = datetime.now(KST).date() - timedelta(days=1)
 
@@ -266,7 +448,7 @@ def preprocess_dataframe(df_raw, sh):
         try:
             h, m = map(int, str(hhmm).split(":"))
             return datetime.combine(day, datetime.min.time()) + timedelta(hours=h, minutes=m)
-        except:
+        except Exception:
             return pd.NaT
 
     df["_start_dt"] = df["방송시작시간"].apply(to_dt)
@@ -285,7 +467,7 @@ def preprocess_dataframe(df_raw, sh):
     df["_end_dt"] = df.apply(decide_end, axis=1)
     df["종료시간"] = df["_end_dt"].apply(
         lambda dt: "24:30" if isinstance(dt, datetime) and (
-                    dt - datetime.combine(day, datetime.min.time())) >= timedelta(days=1, minutes=30)
+                dt - datetime.combine(day, datetime.min.time())) >= timedelta(days=1, minutes=30)
         else (dt.strftime("%H:%M") if isinstance(dt, datetime) else "")
     )
 
@@ -314,7 +496,7 @@ def preprocess_dataframe(df_raw, sh):
                 val_str = ref_df.loc[ref_df["기준시간"] == current_hour, target_day].values
                 hour_rate = float(str(val_str[0]).replace(",", "")) if len(val_str) > 0 and str(
                     val_str[0]).strip() != "" else 0.0
-            except:
+            except Exception:
                 hour_rate = 0.0
 
             total_val += (hour_rate / 60.0) * segment_minutes
@@ -339,7 +521,9 @@ def preprocess_dataframe(df_raw, sh):
     df["분리송출구분"] = df["_총개수"].apply(lambda x: "분리송출" if x > 1 else "일반")
 
     df["주문효율 /h"] = df.apply(
-        lambda r: float(r["매출액 환산수식"]) / float(r["분리송출고려환산가치"]) if r["분리송출고려환산가치"] != 0.0 else 0.0, axis=1
+        lambda r: float(r["매출액 환산수식"]) / float(r["분리송출고려환산가치"]) if r[
+                                                                                   "분리송출고려환산가치"] != 0.0 else 0.0,
+        axis=1
     )
 
     final_cols = ["방송날짜", "방송시작시간", "상품명", "분류", "판매량", "매출액", "상품수", "회사명", "홈쇼핑구분",
@@ -351,13 +535,21 @@ def preprocess_dataframe(df_raw, sh):
     print("✅ 데이터 전처리 완료 (19개 열 생성, 분 단위 합산 및 58:42 배분 완료)")
     return df[final_cols].rename(columns={"상품명": "방송정보"})
 
+
 # ===================== 메인 =====================
 def main():
     driver = None
+    relay = None
+    logged_in = False
     try:
-        driver = make_driver()
+        relay = setup_proxy()
+        driver = make_driver(relay.port if relay else None)
         login_and_handle_session(driver)
+        logged_in = True
         df_raw = crawl_schedule(driver)
+
+        if df_raw.empty:
+            raise RuntimeError("추출된 편성표가 0건입니다.")
 
         gc = gs_client_from_env()
         sh = gc.open_by_url(SPREADSHEET_URL)
@@ -367,7 +559,7 @@ def main():
 
         try:
             ws_raw = sh.worksheet(WORKSHEET_NAME)
-        except:
+        except Exception:
             ws_raw = sh.add_worksheet(title=WORKSHEET_NAME, rows=2, cols=len(df_processed.columns))
 
         df_u = df_processed.fillna("")
@@ -379,24 +571,25 @@ def main():
 
     except Exception as e:
         import traceback
-        print("❌ 오류 발생:", e)
+        print("❌ 오류 발생:", repr(e))
         print(traceback.format_exc())
-
         if driver:
-            try:
-                screenshot_path = str(ARTIFACT_DIR / "error_screenshot.png")
-                driver.save_screenshot(screenshot_path)
-                print(f"📸 에러 발생 순간의 화면을 {screenshot_path} 에 저장했습니다.")
-            except Exception as ss_e:
-                print(f"⚠️ 스크린샷 저장 실패: {ss_e}")
-
+            dump_state(driver)
         sys.exit(1)
 
     finally:
         if driver:
-            execute_logout(driver)
-            driver.quit()
+            if logged_in:
+                execute_logout(driver)
+            try:
+                driver.quit()
+            except Exception:
+                pass
             print("🛑 브라우저 종료 완료.")
+        if relay:
+            relay.report()
+            relay.stop()
+
 
 if __name__ == "__main__":
     main()
