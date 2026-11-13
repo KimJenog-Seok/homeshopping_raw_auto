@@ -21,8 +21,8 @@ ARTIFACT_DIR = Path("artifacts")
 ARTIFACT_DIR.mkdir(exist_ok=True)
 
 # 환경변수(Secrets)가 있으면 우선 사용, 없으면 아래 값 사용
-ECOMM_ID = (os.environ.get("ECOMM_ID") or "여기에_아이디").strip()
-ECOMM_PW = (os.environ.get("ECOMM_PW") or "여기에_비밀번호").strip()
+ECOMM_ID = (os.environ.get("ECOMM_ID") or "smt@trncompany.co.kr").strip()
+ECOMM_PW = (os.environ.get("ECOMM_PW") or "sales7777!!").strip()
 
 # iProyal 프록시 (Secrets 권장: 유료 서비스라 노출되면 요금이 나갈 수 있음)
 #   PROXY_ADDR : geo.iproyal.com:12321
