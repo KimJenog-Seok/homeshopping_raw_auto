@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, json, base64, re, time
+import os, json, base64, re, time, sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+
+import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from openai import OpenAI
@@ -89,11 +92,6 @@ def main():
     if not OPENAI_API_KEY:
         raise RuntimeError("❌ OPENAI_API_KEY가 없습니다.")
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
-    
-    # 압축된 핵심 데이터만 프롬프트에 결합
-    full_prompt = SYSTEM_PROMPT + get_optimized_reference_data()
-
     gc = gs_client_from_env()
     sh = gc.open_by_url(SPREADSHEET_URL)
     ws = sh.worksheet(WORKSHEET_NAME)
@@ -103,10 +101,30 @@ def main():
         print("데이터가 없습니다.")
         return
 
-    header = rows[0]
-    
-    # 💡 전체 행 진행
     data = rows[1:] 
+    
+    # =========================================================
+    # 💡 Step 1 실패로 인한 헛돈(API 비용) 과금 방지 로직
+    # =========================================================
+    KST = timezone(timedelta(hours=9))
+    target_date = (datetime.now(KST) - timedelta(days=1)).strftime("%Y-%m-%d") # 어제 날짜(수집 대상일) 계산
+    
+    # A열(방송날짜) 값만 추출하여 리스트로 만듦
+    dates_in_sheet = [row[0] for row in data if len(row) > 0]
+    
+    # 시트에 어제 날짜가 포함되어 있지 않다면 (즉, 전전날 데이터만 남아있다면)
+    if target_date not in dates_in_sheet:
+        print(f"🚨 [중단] 시트에 최신 데이터({target_date})가 없습니다.")
+        print("Step 1 크롤링이 실패한 것으로 간주하여 유료 API 호출을 취소하고 종료합니다.")
+        sys.exit(0)
+    
+    print(f"✅ 최신 데이터({target_date}) 확인 완료. AI 카테고리 분류를 시작합니다.")
+    # =========================================================
+    
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    
+    # 압축된 핵심 데이터만 프롬프트에 결합
+    full_prompt = SYSTEM_PROMPT + get_optimized_reference_data()
     
     print(f"총 {len(data)}행 분류 시작...")
     results = [""] * len(data)
