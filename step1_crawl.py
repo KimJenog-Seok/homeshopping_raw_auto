@@ -21,14 +21,29 @@ ARTIFACT_DIR = Path("artifacts")
 ARTIFACT_DIR.mkdir(exist_ok=True)
 
 # 환경변수(Secrets)가 있으면 우선 사용, 없으면 아래 값 사용
-ECOMM_ID = (os.environ.get("ECOMM_ID") or "smt@trncompany.co.kr").strip()
-ECOMM_PW = (os.environ.get("ECOMM_PW") or "sales7777!!").strip()
+ECOMM_ID = (os.environ.get("ECOMM_ID") or "여기에_아이디").strip()
+ECOMM_PW = (os.environ.get("ECOMM_PW") or "여기에_비밀번호").strip()
 
 # iProyal 프록시 (Secrets 권장: 유료 서비스라 노출되면 요금이 나갈 수 있음)
 #   PROXY_ADDR : geo.iproyal.com:12321
 #   PROXY_AUTH : 아이디:비밀번호   (대시보드 proxy_auth 값 그대로)
 PROXY_ADDR = (os.environ.get("PROXY_ADDR") or "").strip()
 PROXY_AUTH = (os.environ.get("PROXY_AUTH") or "").strip()
+
+# 프록시 요금 절약: 크롤링에 필요 없는 접속은 중계에서 차단 (프록시를 아예 안 거침)
+BLOCKED_HOSTS = (
+    "optimizationguide-pa.googleapis.com",  # Chrome 내부 모델 다운로드 (트래픽의 90%)
+    "googletagmanager.com",
+    "google-analytics.com",
+    "doubleclick.net",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com",
+    "gstatic.com",
+    "update.googleapis.com",
+    "clients2.google.com",
+    "safebrowsing.googleapis.com",
+    "content-autofill.googleapis.com",
+)
 
 SCHEDULE_URL = "https://live.ecomm-data.com/schedule/hs"
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Aqwj1SkHsgAr08doidy_tfnHJNwgdFfNrMoMteoXMdE/edit"
@@ -41,7 +56,9 @@ class AuthProxyRelay:
     업스트림(유료 프록시)으로 보낼 때 아이디/비밀번호를 붙여 전달한다.
     Chrome 은 인증 프록시를 직접 못 쓰기 때문에 필요."""
 
-    def __init__(self, upstream_addr, auth):
+    def __init__(self, upstream_addr, auth, blocked_hosts=()):
+        self.blocked_hosts = tuple(h.lower() for h in blocked_hosts)
+        self.blocked_count = 0
         host, port = upstream_addr.rsplit(":", 1)
         self.up_host, self.up_port = host.strip(), int(port)
         user, pw = auth.split(":", 1)
@@ -88,6 +105,10 @@ class AuthProxyRelay:
         head, _, rest = data.partition(b"\r\n\r\n")
         return head, rest
 
+    def _is_blocked(self, host):
+        host = (host or "").lower()
+        return any(host == b or host.endswith("." + b) for b in self.blocked_hosts)
+
     def _add(self, label, n):
         with self.lock:
             self.stats[label] = self.stats.get(label, 0) + n
@@ -101,10 +122,19 @@ class AuthProxyRelay:
                 return
             lines = head.split(b"\r\n")
             method, target, _ver = lines[0].decode("latin-1").split(" ", 2)
+            is_connect = method.upper() == "CONNECT"
+            label = target.rsplit(":", 1)[0] if is_connect else (urlparse(target).hostname or "http")
+
+            # 차단 목록에 있으면 프록시로 보내지 않고 바로 거절 (요금 0)
+            if self._is_blocked(label):
+                with self.lock:
+                    self.blocked_count += 1
+                client.sendall(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+                return
+
             upstream = socket.create_connection((self.up_host, self.up_port), timeout=30)
 
-            if method.upper() == "CONNECT":
-                label = target.rsplit(":", 1)[0]
+            if is_connect:
                 upstream.sendall(
                     f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n".encode()
                     + self.auth_header + b"Proxy-Connection: keep-alive\r\n\r\n"
@@ -124,7 +154,6 @@ class AuthProxyRelay:
                 if rest:
                     upstream.sendall(rest)
             else:
-                label = urlparse(target).hostname or "http"
                 new_head = lines[0] + b"\r\n" + self.auth_header + b"\r\n".join(lines[1:]) + b"\r\n\r\n"
                 upstream.sendall(new_head + rest)
 
@@ -158,7 +187,7 @@ class AuthProxyRelay:
         with self.lock:
             total = sum(self.stats.values())
             top = sorted(self.stats.items(), key=lambda kv: kv[1], reverse=True)[:5]
-        print(f"[PROXY] 총 트래픽: {total / 1024 / 1024:.2f} MB")
+        print(f"[PROXY] 총 트래픽: {total / 1024 / 1024:.2f} MB (차단한 불필요 접속 {self.blocked_count}건)")
         for host, n in top:
             print(f"[PROXY]   {host}: {n / 1024 / 1024:.2f} MB")
 # ---- RELAY END
@@ -179,7 +208,7 @@ def setup_proxy():
     if not (PROXY_ADDR and PROXY_AUTH):
         print("[PROXY] 설정 없음 → 프록시 없이 직접 접속")
         return None
-    relay = AuthProxyRelay(PROXY_ADDR, PROXY_AUTH)
+    relay = AuthProxyRelay(PROXY_ADDR, PROXY_AUTH, blocked_hosts=BLOCKED_HOSTS)
     port = relay.start()
     ip = check_exit_ip(port)
     print(f"[PROXY] 중계 시작(127.0.0.1:{port}) / 나가는 IP: {ip}")
@@ -194,6 +223,15 @@ def make_driver(proxy_port=None):
         opts.add_argument("--headless=new")
     for arg in ("--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
                 "--window-size=1920,1080", "--lang=ko-KR"):
+        opts.add_argument(arg)
+
+    # 프록시 요금 절약: Chrome 이 몰래 받는 내부 파일/업데이트/통계 끄기
+    for arg in ("--disable-background-networking", "--disable-component-update",
+                "--disable-sync", "--no-first-run", "--disable-default-apps",
+                "--metrics-recording-only", "--disable-client-side-phishing-detection",
+                "--safebrowsing-disable-auto-update", "--disable-breakpad",
+                "--disable-features=OptimizationHints,OptimizationGuideModelDownloading,"
+                "OptimizationHintsFetching,OptimizationTargetPrediction,Translate,MediaRouter"):
         opts.add_argument(arg)
 
     # 느린 회선에서도 버티도록: 이미지 등 전부 기다리지 않음
