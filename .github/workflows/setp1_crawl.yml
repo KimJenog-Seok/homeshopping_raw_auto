@@ -27,18 +27,10 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Install dependencies and Xvfb
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
           python -m pip install --upgrade pip
-          pip install setuptools selenium undetected-chromedriver pandas gspread google-auth google-auth-oauthlib
-
-      - name: Show environment
-        run: |
-          echo "Chrome path: ${{ steps.setup-chrome.outputs.chrome-path }}"
-          "${{ steps.setup-chrome.outputs.chrome-path }}" --version || true
-          which xvfb-run
+          pip install selenium pandas gspread google-auth google-auth-oauthlib
 
       - name: Run step1_crawl.py with Retry
         uses: nick-fields/retry@v3
@@ -46,18 +38,19 @@ jobs:
           timeout_minutes: 10
           max_attempts: 2
           retry_on: error
-          command: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python step1_crawl.py
+          command: python step1_crawl.py
         env:
           KEY1: ${{ secrets.KEY1 }}
           ECOMM_ID: ${{ secrets.ECOMM_ID }}
           ECOMM_PW: ${{ secrets.ECOMM_PW }}
+          PROXY_ADDR: ${{ secrets.PROXY_ADDR }}
+          PROXY_AUTH: ${{ secrets.PROXY_AUTH }}
           CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
-          HEADLESS: "0"
 
-      - name: Upload debug artifacts
-        if: always()
+      - name: Upload Error Screenshot
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: debug
+          name: error-screenshot
           path: artifacts/
           if-no-files-found: ignore
